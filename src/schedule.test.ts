@@ -7,11 +7,13 @@ import {
   SLOT_MIN,
   availableStarts,
   blocksOverlap,
+  busyMinutes,
   fitsDay,
   formatBlockRange,
   formatHours,
   formatMinutes,
   isValidBlockTiming,
+  layoutDayBlocks,
   liveBlocksForDay,
   maxDurationAt,
   nearestValidStart,
@@ -93,33 +95,31 @@ describe('day occupancy', () => {
     expect(blocksOverlap({ startMin: 540, durationMin: 60 }, { startMin: 600, durationMin: 30 })).toBe(false);
   });
 
-  it('rejects placements that collide and accepts free space', () => {
-    expect(fitsDay(day, 570, 30)).toBe(false);
+  it('allows overlapping placements when timing is valid', () => {
+    expect(fitsDay(day, 570, 30)).toBe(true);
     expect(fitsDay(day, 600, 120)).toBe(true);
-    expect(fitsDay(day, 600, 150)).toBe(false);
+    expect(fitsDay(day, 600, 150)).toBe(true);
+    expect(fitsDay(day, 1380, 60)).toBe(false);
   });
 
-  it('ignores the block being edited when checking fit', () => {
-    expect(fitsDay(day, 540, 90, 'block-a')).toBe(true);
-  });
-
-  it('caps duration at the next block or the end of day', () => {
-    expect(maxDurationAt(day, 600)).toBe(120);
+  it('caps duration at the end of day only', () => {
+    expect(maxDurationAt(day, 600)).toBe(DAY_END_MIN - 600);
     expect(maxDurationAt(day, 810)).toBe(DAY_END_MIN - 810);
-    expect(maxDurationAt(day, 750)).toBe(0);
+    expect(maxDurationAt(day, 750)).toBe(DAY_END_MIN - 750);
     expect(maxDurationAt(day, 720, 'block-b')).toBe(DAY_END_MIN - 720);
   });
 
-  it('lists only free slot-aligned starts', () => {
+  it('lists every slot-aligned start that fits the day window', () => {
     const starts = availableStarts(day, 60);
     expect(starts).toContain(450);
+    expect(starts).toContain(540);
     expect(starts).toContain(600);
-    expect(starts).not.toContain(540);
-    expect(starts).not.toContain(510);
+    expect(starts).toContain(510);
+    expect(starts).toContain(1350);
     expect(starts).not.toContain(1380);
   });
 
-  it('snaps a drag preview to the nearest free start', () => {
+  it('snaps a drag preview to the nearest in-window start', () => {
     expect(nearestValidStart(day, 60, 605)).toBe(600);
     expect(nearestValidStart(day, 60, 550, 'block-a')).toBe(540);
     expect(nearestValidStart(day, 60, 200)).toBe(450);
@@ -133,9 +133,48 @@ describe('day occupancy', () => {
       makeBlock({ id: 'deleted', startMin: 600, deleted: true }),
       makeBlock({ id: 'other-day', dateKey: '2026-07-13' }),
     ];
-    const day = liveBlocksForDay(blocks, '2026-07-12');
-    expect(day.map((block) => block.id)).toEqual(['earlier', 'later']);
-    expect(plannedMinutes(day)).toBe(120);
+    const live = liveBlocksForDay(blocks, '2026-07-12');
+    expect(live.map((block) => block.id)).toEqual(['earlier', 'later']);
+    expect(plannedMinutes(live)).toBe(120);
+  });
+
+  it('counts overlapping busy time once', () => {
+    const overlapping = [
+      makeBlock({ id: 'a', startMin: 600, durationMin: 60 }),
+      makeBlock({ id: 'b', startMin: 630, durationMin: 60 }),
+    ];
+    expect(plannedMinutes(overlapping)).toBe(120);
+    expect(busyMinutes(overlapping)).toBe(90);
+  });
+});
+
+describe('overlap layout', () => {
+  it('keeps solitary blocks full width', () => {
+    const layout = layoutDayBlocks([
+      makeBlock({ id: 'solo', startMin: 600, durationMin: 60 }),
+    ]);
+    expect(layout.get('solo')).toEqual({ column: 0, columnCount: 1 });
+  });
+
+  it('packs concurrent blocks into side-by-side lanes', () => {
+    const layout = layoutDayBlocks([
+      makeBlock({ id: 'a', startMin: 600, durationMin: 60 }),
+      makeBlock({ id: 'b', startMin: 630, durationMin: 60 }),
+    ]);
+    expect(layout.get('a')?.columnCount).toBe(2);
+    expect(layout.get('b')?.columnCount).toBe(2);
+    expect(layout.get('a')?.column).not.toBe(layout.get('b')?.column);
+  });
+
+  it('keeps separate clusters independent', () => {
+    const layout = layoutDayBlocks([
+      makeBlock({ id: 'morning-a', startMin: 540, durationMin: 60 }),
+      makeBlock({ id: 'morning-b', startMin: 540, durationMin: 30 }),
+      makeBlock({ id: 'evening', startMin: 900, durationMin: 60 }),
+    ]);
+    expect(layout.get('morning-a')?.columnCount).toBe(2);
+    expect(layout.get('morning-b')?.columnCount).toBe(2);
+    expect(layout.get('evening')).toEqual({ column: 0, columnCount: 1 });
   });
 });
 

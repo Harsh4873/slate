@@ -8,10 +8,12 @@ import {
   SLOT_COUNT,
   SLOT_MIN,
   availableStarts,
+  busyMinutes,
   clampSlotIndex,
   formatBlockRange,
   formatHours,
   formatMinutes,
+  layoutDayBlocks,
   liveBlocksForDay,
   maxDurationAt,
   nearestValidStart,
@@ -234,6 +236,16 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
     return occupied;
   }, [dayBlocks, moveDrag]);
 
+  const displayBlocks = useMemo(() => (
+    dayBlocks.map((block) => (
+      moveDrag && block.id === moveDrag.blockId
+        ? { ...block, startMin: moveDrag.previewStartMin }
+        : block
+    ))
+  ), [dayBlocks, moveDrag]);
+
+  const blockLanes = useMemo(() => layoutDayBlocks(displayBlocks), [displayBlocks]);
+
   const todayKey = toDateKey(new Date());
   const focusTasks = useMemo(() => {
     const open = state.tasks.filter((task): task is Task => !task.deleted && !task.done && Boolean(task.due) && (task.due as string) <= todayKey);
@@ -241,6 +253,8 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
   }, [state.tasks, todayKey]);
 
   const planned = plannedMinutes(dayBlocks);
+  const busy = busyMinutes(dayBlocks);
+  const daySpan = DAY_END_MIN - slotStart(0);
   const nowOffset = viewingToday ? nowOffsetMinutes(nowTick) : null;
 
   function slotIndexFromClientY(clientY: number) {
@@ -259,15 +273,9 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
     return nearestValidStart(dayBlocks, durationMin, desiredStartMin, blockId);
   }
 
-  /** Grow the selection from the anchor, stopping at the first occupied slot. */
-  function clampDragEnd(anchor: number, rawEnd: number) {
-    const step = rawEnd >= anchor ? 1 : -1;
-    let end = anchor;
-    for (let index = anchor + step; step > 0 ? index <= rawEnd : index >= rawEnd; index += step) {
-      if (index < 0 || index >= SLOT_COUNT || occupiedSlots.has(index)) break;
-      end = index;
-    }
-    return end;
+  /** Grow the selection from the anchor; overlaps are fine, only stay inside the grid. */
+  function clampDragEnd(_anchor: number, rawEnd: number) {
+    return clampSlotIndex(rawEnd);
   }
 
   function openCreateEditor(fromIndex: number, toIndex: number) {
@@ -440,7 +448,6 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
   }
 
   function onSlotPointerDown(event: React.PointerEvent<HTMLDivElement>, index: number) {
-    if (occupiedSlots.has(index)) return;
     if (event.pointerType !== 'mouse') return; // touch keeps native scrolling; tap-create handles it
     if (moveDragRef.current) return;
     event.preventDefault();
@@ -488,7 +495,7 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
         eyebrow="Time-boxed day"
         title={formatFullDate(date)}
         copy={dayBlocks.length
-          ? `${dayBlocks.length} block${dayBlocks.length === 1 ? '' : 's'} · ${formatHours(planned)} planned · ${formatHours(DAY_END_MIN - slotStart(0) - planned)} free`
+          ? `${dayBlocks.length} block${dayBlocks.length === 1 ? '' : 's'} · ${formatHours(planned)} planned · ${formatHours(Math.max(0, daySpan - busy))} free`
           : 'Nothing planned yet. Click a slot — or drag across a few — to box out time.'}
         action={(
           <DateSwitcher
@@ -510,7 +517,7 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
               className="button button-secondary"
               onClick={() => copyDayBlocks(yesterdayKey, dateKey)}
               disabled={yesterdayBlocks.length === 0}
-              title="Copy yesterday's blocks into any free space on this day"
+              title="Copy yesterday's blocks onto this day"
             >
               <CopyPlus aria-hidden="true" /> Copy yesterday
             </button>
@@ -574,20 +581,29 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
                 );
               })}
 
-              {dayBlocks.map((block) => {
+              {displayBlocks.map((block) => {
                 const isMoving = moveDrag?.blockId === block.id;
-                const displayStart = isMoving ? moveDrag.previewStartMin : block.startMin;
+                const lane = blockLanes.get(block.id) ?? { column: 0, columnCount: 1 };
+                const laneGap = 3;
+                const edgeInset = 8;
+                const overlapping = lane.columnCount > 1;
                 return (
                   <button
                     key={block.id}
                     type="button"
-                    className={`schedule-block${isMoving ? ' is-dragging' : ''}`}
+                    className={`schedule-block${isMoving ? ' is-dragging' : ''}${overlapping ? ' is-overlapping' : ''}`}
                     style={{
                       ...accentStyle(block.color),
-                      top: slotIndexFor(displayStart) * SLOT_HEIGHT + 2,
+                      top: slotIndexFor(block.startMin) * SLOT_HEIGHT + 2,
                       height: (block.durationMin / SLOT_MIN) * SLOT_HEIGHT - 4,
+                      left: `calc(${edgeInset}px + (100% - ${edgeInset * 2}px) * ${lane.column / lane.columnCount})`,
+                      width: `calc((100% - ${edgeInset * 2}px) / ${lane.columnCount} - ${laneGap}px)`,
+                      zIndex: isMoving ? 8 : 4 + lane.column,
                     }}
-                    onPointerDown={(event) => onBlockPointerDown(event, block)}
+                    onPointerDown={(event) => {
+                      const source = dayBlocks.find((item) => item.id === block.id);
+                      if (source) onBlockPointerDown(event, source);
+                    }}
                     onContextMenu={(event) => event.preventDefault()}
                     onClick={(event) => {
                       // Tap-to-edit is handled in pointerup; ignore the synthetic click after a press.
@@ -595,7 +611,7 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
                     }}
                   >
                     <strong>{block.title}</strong>
-                    <span>{formatBlockRange({ startMin: displayStart, durationMin: block.durationMin })}</span>
+                    <span>{formatBlockRange(block)}</span>
                   </button>
                 );
               })}

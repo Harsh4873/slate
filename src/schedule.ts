@@ -54,66 +54,140 @@ export function blocksOverlap(
     && right.startMin < left.startMin + left.durationMin;
 }
 
-/** Whether a candidate block fits the day without touching existing blocks. */
+/** Whether a candidate block’s timing is valid for the day window. Overlaps are allowed. */
 export function fitsDay(
-  dayBlocks: Block[],
+  _dayBlocks: Block[],
   startMin: number,
   durationMin: number,
-  excludeId?: string,
+  _excludeId?: string,
 ) {
-  if (!isValidBlockTiming(startMin, durationMin)) return false;
-  const candidate = { startMin, durationMin };
-  return dayBlocks.every((block) => block.id === excludeId || !blocksOverlap(candidate, block));
+  return isValidBlockTiming(startMin, durationMin);
 }
 
-/** The longest duration a block at startMin can grow to before hitting the next block or day end. */
-export function maxDurationAt(dayBlocks: Block[], startMin: number, excludeId?: string) {
-  let limit = DAY_END_MIN;
-  for (const block of dayBlocks) {
-    if (block.id === excludeId) continue;
-    if (block.startMin >= startMin) limit = Math.min(limit, block.startMin);
-    else if (block.startMin + block.durationMin > startMin) return 0;
-  }
-  return Math.max(0, limit - startMin);
+/** Longest duration a block at startMin can run before hitting the end of the day. */
+export function maxDurationAt(_dayBlocks: Block[], startMin: number, _excludeId?: string) {
+  if (startMin < DAY_START_MIN || startMin >= DAY_END_MIN) return 0;
+  if ((startMin - DAY_START_MIN) % SLOT_MIN !== 0) return 0;
+  return Math.max(0, DAY_END_MIN - startMin);
 }
 
-/** Start times (slot-aligned) where a block of durationMin fits, for the editor's start picker. */
-export function availableStarts(dayBlocks: Block[], durationMin: number, excludeId?: string) {
+/** Every slot-aligned start where durationMin still fits inside the day window. */
+export function availableStarts(_dayBlocks: Block[], durationMin: number, _excludeId?: string) {
   const starts: number[] = [];
   for (let index = 0; index < SLOT_COUNT; index += 1) {
     const startMin = slotStart(index);
     if (startMin + durationMin > DAY_END_MIN) break;
-    if (fitsDay(dayBlocks, startMin, durationMin, excludeId)) starts.push(startMin);
+    if (isValidBlockTiming(startMin, durationMin)) starts.push(startMin);
   }
   return starts;
 }
 
-/** Snap a drag preview to the nearest slot-aligned start that still fits the day. */
+/** Snap a drag preview to the nearest slot-aligned start inside the day window. */
 export function nearestValidStart(
-  dayBlocks: Block[],
+  _dayBlocks: Block[],
   durationMin: number,
   desiredStartMin: number,
-  excludeId?: string,
+  _excludeId?: string,
 ) {
-  const options = availableStarts(dayBlocks, durationMin, excludeId);
-  if (options.length === 0) return null;
+  if (!Number.isInteger(durationMin) || durationMin < SLOT_MIN || durationMin % SLOT_MIN !== 0) {
+    return null;
+  }
 
   const slotSpan = Math.max(1, durationMin / SLOT_MIN);
   const maxIndex = SLOT_COUNT - slotSpan;
-  const rawIndex = Math.round((desiredStartMin - DAY_START_MIN) / SLOT_MIN);
-  const desired = slotStart(Math.min(Math.max(rawIndex, 0), maxIndex));
+  if (maxIndex < 0) return null;
 
-  let best = options[0];
-  let bestDist = Math.abs(best - desired);
-  for (let index = 1; index < options.length; index += 1) {
-    const option = options[index];
-    const dist = Math.abs(option - desired);
-    if (dist < bestDist) {
-      best = option;
-      bestDist = dist;
+  const rawIndex = Math.round((desiredStartMin - DAY_START_MIN) / SLOT_MIN);
+  return slotStart(Math.min(Math.max(rawIndex, 0), maxIndex));
+}
+
+export type BlockLane = {
+  column: number;
+  columnCount: number;
+};
+
+/**
+ * Pack overlapping blocks into side-by-side lanes (Apple/Google calendar style).
+ * Connected overlap clusters share a column count so concurrent blocks stay legible.
+ */
+export function layoutDayBlocks(
+  blocks: Array<Pick<Block, 'id' | 'startMin' | 'durationMin'>>,
+): Map<string, BlockLane> {
+  const layout = new Map<string, BlockLane>();
+  if (blocks.length === 0) return layout;
+
+  const ordered = [...blocks].sort((left, right) => (
+    left.startMin - right.startMin
+    || right.durationMin - left.durationMin
+    || left.id.localeCompare(right.id)
+  ));
+
+  const columnEnds: number[] = [];
+  const placed = ordered.map((block) => {
+    const endMin = block.startMin + block.durationMin;
+    let column = 0;
+    while (column < columnEnds.length && columnEnds[column] > block.startMin) column += 1;
+    if (column === columnEnds.length) columnEnds.push(endMin);
+    else columnEnds[column] = endMin;
+    return { id: block.id, startMin: block.startMin, endMin, column };
+  });
+
+  const parent = placed.map((_, index) => index);
+  function find(index: number): number {
+    if (parent[index] !== index) parent[index] = find(parent[index]);
+    return parent[index];
+  }
+  function union(left: number, right: number) {
+    const rootLeft = find(left);
+    const rootRight = find(right);
+    if (rootLeft !== rootRight) parent[rootRight] = rootLeft;
+  }
+
+  for (let left = 0; left < placed.length; left += 1) {
+    for (let right = left + 1; right < placed.length; right += 1) {
+      if (placed[left].startMin < placed[right].endMin && placed[right].startMin < placed[left].endMin) {
+        union(left, right);
+      }
     }
   }
-  return best;
+
+  const clusterWidth = new Map<number, number>();
+  for (let index = 0; index < placed.length; index += 1) {
+    const root = find(index);
+    clusterWidth.set(root, Math.max(clusterWidth.get(root) ?? 1, placed[index].column + 1));
+  }
+
+  for (let index = 0; index < placed.length; index += 1) {
+    layout.set(placed[index].id, {
+      column: placed[index].column,
+      columnCount: clusterWidth.get(find(index)) ?? 1,
+    });
+  }
+
+  return layout;
+}
+
+/** Union of occupied minutes (overlaps counted once) for free-time summaries. */
+export function busyMinutes(dayBlocks: Array<Pick<Block, 'startMin' | 'durationMin'>>) {
+  if (dayBlocks.length === 0) return 0;
+  const intervals = dayBlocks
+    .map((block) => [block.startMin, block.startMin + block.durationMin] as const)
+    .sort((left, right) => left[0] - right[0] || left[1] - right[1]);
+
+  let total = 0;
+  let curStart = intervals[0][0];
+  let curEnd = intervals[0][1];
+  for (let index = 1; index < intervals.length; index += 1) {
+    const [start, end] = intervals[index];
+    if (start <= curEnd) {
+      curEnd = Math.max(curEnd, end);
+      continue;
+    }
+    total += curEnd - curStart;
+    curStart = start;
+    curEnd = end;
+  }
+  return total + (curEnd - curStart);
 }
 
 export function plannedMinutes(dayBlocks: Block[]) {

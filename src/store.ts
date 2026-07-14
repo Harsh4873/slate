@@ -12,7 +12,7 @@ import {
   type ThemePreference,
 } from './model';
 import { needsRebalance, orderBetween, rebalanced, sortByOrder, ORDER_GAP } from './order';
-import { fitsDay, isValidBlockTiming, liveBlocksForDay } from './schedule';
+import { isValidBlockTiming } from './schedule';
 import { mergeStates, stableStringify } from './sync-core';
 
 const DATABASE_NAME = 'slate-todo';
@@ -742,8 +742,7 @@ export function useSlateStore(): SlateStore {
   const saveBlock = useCallback((input: Pick<Block, 'dateKey' | 'startMin' | 'durationMin' | 'title' | 'color'> & { id?: string }) => {
     commit((previous) => {
       const now = new Date().toISOString();
-      const day = liveBlocksForDay(previous.blocks, input.dateKey);
-      if (!fitsDay(day, input.startMin, input.durationMin, input.id)) return previous;
+      if (!isValidBlockTiming(input.startMin, input.durationMin)) return previous;
       if (input.id) {
         let changed = false;
         const blocks = previous.blocks.map((block) => {
@@ -792,27 +791,17 @@ export function useSlateStore(): SlateStore {
     commit((previous) => {
       const now = new Date().toISOString();
       const source = previous.blocks.filter((block) => !block.deleted && block.dateKey === fromDateKey);
-      const existing = previous.blocks.filter((block) => !block.deleted && block.dateKey === toDateKey);
-      const copies: Block[] = [];
-      for (const block of source) {
-        const candidate = { startMin: block.startMin, durationMin: block.durationMin };
-        const collides = [...existing, ...copies].some((other) => (
-          candidate.startMin < other.startMin + other.durationMin
-          && other.startMin < candidate.startMin + candidate.durationMin
-        ));
-        if (collides) continue;
-        copies.push({
-          id: makeId('block'),
-          dateKey: toDateKey,
-          startMin: block.startMin,
-          durationMin: block.durationMin,
-          title: block.title,
-          color: block.color,
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-      if (!copies.length) return previous;
+      if (!source.length) return previous;
+      const copies: Block[] = source.map((block) => ({
+        id: makeId('block'),
+        dateKey: toDateKey,
+        startMin: block.startMin,
+        durationMin: block.durationMin,
+        title: block.title,
+        color: block.color,
+        createdAt: now,
+        updatedAt: now,
+      }));
       return { ...previous, blocks: [...previous.blocks, ...copies] };
     }, (next, previous) => [changedBlocksMutation(next, previous)]);
   }, [commit, changedBlocksMutation]);
