@@ -828,7 +828,11 @@ main:focus {
     linear-gradient(120deg, color-mix(in srgb, var(--accent-color) 16%, transparent), transparent 65%),
     var(--surface-2);
   text-align: left;
-  transition: transform 140ms ease, border-color 140ms ease;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
 }
 
 .schedule-block::before {
@@ -845,6 +849,29 @@ main:focus {
 .schedule-block:hover {
   border-color: color-mix(in srgb, var(--accent-color) 75%, var(--line));
   transform: translateY(-1px);
+}
+
+.schedule-block.is-dragging {
+  z-index: 8;
+  border-color: color-mix(in srgb, var(--accent-color) 80%, var(--line));
+  box-shadow:
+    0 14px 28px color-mix(in srgb, var(--text) 18%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent-color) 35%, transparent);
+  transform: scale(1.03);
+  transition: none;
+  touch-action: none;
+  cursor: grabbing;
+}
+
+.schedule-grid.is-moving-block {
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.schedule-grid.is-moving-block .schedule-slot,
+.schedule-grid.is-moving-block .schedule-slot-add {
+  pointer-events: none;
 }
 
 .schedule-block strong {

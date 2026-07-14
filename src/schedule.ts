@@ -88,6 +88,34 @@ export function availableStarts(dayBlocks: Block[], durationMin: number, exclude
   return starts;
 }
 
+/** Snap a drag preview to the nearest slot-aligned start that still fits the day. */
+export function nearestValidStart(
+  dayBlocks: Block[],
+  durationMin: number,
+  desiredStartMin: number,
+  excludeId?: string,
+) {
+  const options = availableStarts(dayBlocks, durationMin, excludeId);
+  if (options.length === 0) return null;
+
+  const slotSpan = Math.max(1, durationMin / SLOT_MIN);
+  const maxIndex = SLOT_COUNT - slotSpan;
+  const rawIndex = Math.round((desiredStartMin - DAY_START_MIN) / SLOT_MIN);
+  const desired = slotStart(Math.min(Math.max(rawIndex, 0), maxIndex));
+
+  let best = options[0];
+  let bestDist = Math.abs(best - desired);
+  for (let index = 1; index < options.length; index += 1) {
+    const option = options[index];
+    const dist = Math.abs(option - desired);
+    if (dist < bestDist) {
+      best = option;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
 export function plannedMinutes(dayBlocks: Block[]) {
   return dayBlocks.reduce((total, block) => total + block.durationMin, 0);
 }

@@ -14,6 +14,7 @@ import {
   isValidBlockTiming,
   liveBlocksForDay,
   maxDurationAt,
+  nearestValidStart,
   nowOffsetMinutes,
   plannedMinutes,
   slotIndexFor,
@@ -116,6 +117,13 @@ describe('day occupancy', () => {
     expect(starts).not.toContain(540);
     expect(starts).not.toContain(510);
     expect(starts).not.toContain(1380);
+  });
+
+  it('snaps a drag preview to the nearest free start', () => {
+    expect(nearestValidStart(day, 60, 605)).toBe(600);
+    expect(nearestValidStart(day, 60, 550, 'block-a')).toBe(540);
+    expect(nearestValidStart(day, 60, 200)).toBe(450);
+    expect(nearestValidStart(day, 60, 2000)).toBe(DAY_END_MIN - 60);
   });
 
   it('filters, sorts, and totals a day of blocks', () => {

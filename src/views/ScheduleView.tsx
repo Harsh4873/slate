@@ -4,6 +4,7 @@ import { addDays, formatCompactDate, formatDueKey, formatFullDate, isToday, toDa
 import { DEFAULT_COLOR, type Block, type SlateState, type Task } from '../model';
 import {
   DAY_END_MIN,
+  DAY_START_MIN,
   SLOT_COUNT,
   SLOT_MIN,
   availableStarts,
@@ -13,6 +14,7 @@ import {
   formatMinutes,
   liveBlocksForDay,
   maxDurationAt,
+  nearestValidStart,
   nowOffsetMinutes,
   plannedMinutes,
   slotIndexFor,
@@ -22,10 +24,22 @@ import type { SlateStore } from '../store';
 import { ColorPicker, DateSwitcher, EmptyState, Modal, SectionHeading, accentStyle } from '../ui';
 
 const SLOT_HEIGHT = 44;
+const LONG_PRESS_MS = 380;
+const ARM_MOVE_PX = 8;
+const CANCEL_PRESS_PX = 12;
 
 type EditorState =
   | { mode: 'create'; startMin: number; durationMin: number }
   | { mode: 'edit'; block: Block };
+
+type MoveDrag = {
+  blockId: string;
+  startMin: number;
+  durationMin: number;
+  title: string;
+  color: string;
+  previewStartMin: number;
+};
 
 interface ScheduleViewProps {
   state: SlateState;
@@ -172,9 +186,25 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
   const [date, setDate] = useState(() => new Date());
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [dragRange, setDragRange] = useState<{ anchor: number; end: number } | null>(null);
+  const [moveDrag, setMoveDrag] = useState<MoveDrag | null>(null);
   const [nowTick, setNowTick] = useState(() => new Date());
   const gridRef = useRef<HTMLDivElement>(null);
   const dragStateRef = useRef<{ anchor: number; end: number; pointerId: number } | null>(null);
+  const moveDragRef = useRef<{
+    blockId: string;
+    pointerId: number;
+    grabOffsetY: number;
+    originStartMin: number;
+    durationMin: number;
+    title: string;
+    color: string;
+    previewStartMin: number;
+    armed: boolean;
+    moved: boolean;
+    startClientY: number;
+    startClientX: number;
+  } | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
 
   const dateKey = toDateKey(date);
   const viewingToday = isToday(date);
@@ -189,15 +219,20 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
     return () => window.clearInterval(timer);
   }, [viewingToday]);
 
+  useEffect(() => () => {
+    if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
+  }, []);
+
   const occupiedSlots = useMemo(() => {
     const occupied = new Set<number>();
     for (const block of dayBlocks) {
+      if (moveDrag && block.id === moveDrag.blockId) continue;
       const first = slotIndexFor(block.startMin);
       const span = block.durationMin / SLOT_MIN;
       for (let offset = 0; offset < span; offset += 1) occupied.add(first + offset);
     }
     return occupied;
-  }, [dayBlocks]);
+  }, [dayBlocks, moveDrag]);
 
   const todayKey = toDateKey(new Date());
   const focusTasks = useMemo(() => {
@@ -213,6 +248,15 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
     if (!grid) return 0;
     const rect = grid.getBoundingClientRect();
     return clampSlotIndex(Math.floor((clientY - rect.top) / SLOT_HEIGHT));
+  }
+
+  function previewStartFromClientY(clientY: number, grabOffsetY: number, durationMin: number, blockId: string) {
+    const grid = gridRef.current;
+    if (!grid) return null;
+    const rect = grid.getBoundingClientRect();
+    const topY = clientY - rect.top - grabOffsetY;
+    const desiredStartMin = DAY_START_MIN + (topY / SLOT_HEIGHT) * SLOT_MIN;
+    return nearestValidStart(dayBlocks, durationMin, desiredStartMin, blockId);
   }
 
   /** Grow the selection from the anchor, stopping at the first occupied slot. */
@@ -236,9 +280,169 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
     });
   }
 
+  function clearLongPressTimer() {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
+  function armMoveDrag() {
+    const pending = moveDragRef.current;
+    if (!pending || pending.armed) return;
+    pending.armed = true;
+    setMoveDrag({
+      blockId: pending.blockId,
+      startMin: pending.originStartMin,
+      durationMin: pending.durationMin,
+      title: pending.title,
+      color: pending.color,
+      previewStartMin: pending.previewStartMin,
+    });
+    try {
+      navigator.vibrate?.(12);
+    } catch {
+      // Vibration is best-effort on phones that support it.
+    }
+  }
+
+  function onBlockPointerDown(event: React.PointerEvent<HTMLButtonElement>, block: Block) {
+    if (event.button !== 0) return;
+    if (moveDragRef.current || dragStateRef.current) return;
+    event.stopPropagation();
+
+    const grid = gridRef.current;
+    if (!grid) return;
+    const rect = grid.getBoundingClientRect();
+    const blockTop = slotIndexFor(block.startMin) * SLOT_HEIGHT + 2;
+    const grabOffsetY = event.clientY - rect.top - blockTop;
+
+    moveDragRef.current = {
+      blockId: block.id,
+      pointerId: event.pointerId,
+      grabOffsetY,
+      originStartMin: block.startMin,
+      durationMin: block.durationMin,
+      title: block.title,
+      color: block.color,
+      previewStartMin: block.startMin,
+      armed: false,
+      moved: false,
+      startClientY: event.clientY,
+      startClientX: event.clientX,
+    };
+
+    const isTouchLike = event.pointerType === 'touch' || event.pointerType === 'pen';
+    if (isTouchLike) {
+      longPressTimerRef.current = window.setTimeout(() => {
+        longPressTimerRef.current = null;
+        armMoveDrag();
+      }, LONG_PRESS_MS);
+    }
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const pending = moveDragRef.current;
+      if (!pending || moveEvent.pointerId !== pending.pointerId) return;
+
+      const dx = moveEvent.clientX - pending.startClientX;
+      const dy = moveEvent.clientY - pending.startClientY;
+      const distance = Math.hypot(dx, dy);
+
+      if (!pending.armed) {
+        if (isTouchLike) {
+          if (distance > CANCEL_PRESS_PX) {
+            // Finger slid before the long-press — let the page scroll instead.
+            teardownMoveListeners();
+            moveDragRef.current = null;
+            clearLongPressTimer();
+          }
+          return;
+        }
+        if (distance < ARM_MOVE_PX) return;
+        armMoveDrag();
+      }
+
+      moveEvent.preventDefault();
+      const nextStart = previewStartFromClientY(
+        moveEvent.clientY,
+        pending.grabOffsetY,
+        pending.durationMin,
+        pending.blockId,
+      );
+      if (nextStart === null) return;
+      if (nextStart !== pending.previewStartMin) {
+        pending.previewStartMin = nextStart;
+        pending.moved = nextStart !== pending.originStartMin;
+        setMoveDrag({
+          blockId: pending.blockId,
+          startMin: pending.originStartMin,
+          durationMin: pending.durationMin,
+          title: pending.title,
+          color: pending.color,
+          previewStartMin: nextStart,
+        });
+      } else if (Math.abs(dy) > ARM_MOVE_PX) {
+        pending.moved = pending.previewStartMin !== pending.originStartMin;
+      }
+    };
+
+    const teardownMoveListeners = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('touchmove', onTouchMove);
+    };
+
+    const onTouchMove = (touchEvent: TouchEvent) => {
+      if (!moveDragRef.current?.armed) return;
+      touchEvent.preventDefault();
+    };
+
+    const finish = (cancelled: boolean) => {
+      clearLongPressTimer();
+      teardownMoveListeners();
+      const pending = moveDragRef.current;
+      moveDragRef.current = null;
+      setMoveDrag(null);
+      if (!pending || cancelled) return;
+
+      if (!pending.armed) {
+        setEditor({ mode: 'edit', block });
+        return;
+      }
+
+      if (pending.moved && pending.previewStartMin !== pending.originStartMin) {
+        saveBlock({
+          id: pending.blockId,
+          dateKey,
+          startMin: pending.previewStartMin,
+          durationMin: pending.durationMin,
+          title: pending.title,
+          color: pending.color,
+        });
+      }
+    };
+
+    const onUp = (upEvent: PointerEvent) => {
+      if (upEvent.pointerId !== event.pointerId) return;
+      finish(false);
+    };
+
+    const onCancel = (cancelEvent: PointerEvent) => {
+      if (cancelEvent.pointerId !== event.pointerId) return;
+      finish(true);
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+  }
+
   function onSlotPointerDown(event: React.PointerEvent<HTMLDivElement>, index: number) {
     if (occupiedSlots.has(index)) return;
     if (event.pointerType !== 'mouse') return; // touch keeps native scrolling; tap-create handles it
+    if (moveDragRef.current) return;
     event.preventDefault();
     dragStateRef.current = { anchor: index, end: index, pointerId: event.pointerId };
     setDragRange({ anchor: index, end: index });
@@ -338,7 +542,7 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
             </div>
 
             <div
-              className="schedule-grid"
+              className={`schedule-grid${moveDrag ? ' is-moving-block' : ''}`}
               ref={gridRef}
               style={{ height: SLOT_COUNT * SLOT_HEIGHT }}
               role="group"
@@ -370,22 +574,31 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
                 );
               })}
 
-              {dayBlocks.map((block) => (
-                <button
-                  key={block.id}
-                  type="button"
-                  className="schedule-block"
-                  style={{
-                    ...accentStyle(block.color),
-                    top: slotIndexFor(block.startMin) * SLOT_HEIGHT + 2,
-                    height: (block.durationMin / SLOT_MIN) * SLOT_HEIGHT - 4,
-                  }}
-                  onClick={() => setEditor({ mode: 'edit', block })}
-                >
-                  <strong>{block.title}</strong>
-                  <span>{formatBlockRange(block)}</span>
-                </button>
-              ))}
+              {dayBlocks.map((block) => {
+                const isMoving = moveDrag?.blockId === block.id;
+                const displayStart = isMoving ? moveDrag.previewStartMin : block.startMin;
+                return (
+                  <button
+                    key={block.id}
+                    type="button"
+                    className={`schedule-block${isMoving ? ' is-dragging' : ''}`}
+                    style={{
+                      ...accentStyle(block.color),
+                      top: slotIndexFor(displayStart) * SLOT_HEIGHT + 2,
+                      height: (block.durationMin / SLOT_MIN) * SLOT_HEIGHT - 4,
+                    }}
+                    onPointerDown={(event) => onBlockPointerDown(event, block)}
+                    onContextMenu={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      // Tap-to-edit is handled in pointerup; ignore the synthetic click after a press.
+                      event.preventDefault();
+                    }}
+                  >
+                    <strong>{block.title}</strong>
+                    <span>{formatBlockRange({ startMin: displayStart, durationMin: block.durationMin })}</span>
+                  </button>
+                );
+              })}
 
               {selection && (
                 <div
