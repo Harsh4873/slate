@@ -1,7 +1,8 @@
-import { CalendarClock, CopyPlus, Eraser, ListChecks, Plus, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CopyPlus, Eraser, ListChecks, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, formatCompactDate, formatDueKey, formatFullDate, isToday, toDateKey } from '../dates';
 import { DEFAULT_COLOR, type Block, type SlateState, type Task } from '../model';
+import { sortByOrder } from '../order';
 import {
   DAY_END_MIN,
   DAY_START_MIN,
@@ -29,6 +30,7 @@ const SLOT_HEIGHT = 44;
 const LONG_PRESS_MS = 380;
 const ARM_MOVE_PX = 8;
 const CANCEL_PRESS_PX = 12;
+const RECOVERED_TASKS_COLOR = '#ff8e64';
 
 type EditorState =
   | { mode: 'create'; startMin: number; durationMin: number }
@@ -190,7 +192,14 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
   const [dragRange, setDragRange] = useState<{ anchor: number; end: number } | null>(null);
   const [moveDrag, setMoveDrag] = useState<MoveDrag | null>(null);
   const [nowTick, setNowTick] = useState(() => new Date());
+  const [activeTodoSectionId, setActiveTodoSectionId] = useState<string | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const todoCarouselRef = useRef<HTMLDivElement>(null);
+  const todoScrollFrameRef = useRef<number | null>(null);
+  const todoScrollSettleTimerRef = useRef<number | null>(null);
+  const todoProgrammaticTargetRef = useRef<number | null>(null);
+  const lastTodoSectionIndexRef = useRef(0);
+  const todoSectionOrderRef = useRef('');
   const dragStateRef = useRef<{ anchor: number; end: number; pointerId: number } | null>(null);
   const moveDragRef = useRef<{
     blockId: string;
@@ -223,6 +232,8 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
 
   useEffect(() => () => {
     if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
+    if (todoScrollFrameRef.current !== null) window.cancelAnimationFrame(todoScrollFrameRef.current);
+    if (todoScrollSettleTimerRef.current !== null) window.clearTimeout(todoScrollSettleTimerRef.current);
   }, []);
 
   const occupiedSlots = useMemo(() => {
@@ -247,10 +258,83 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
   const blockLanes = useMemo(() => layoutDayBlocks(displayBlocks), [displayBlocks]);
 
   const todayKey = toDateKey(new Date());
-  const focusTasks = useMemo(() => {
-    const open = state.tasks.filter((task): task is Task => !task.deleted && !task.done && Boolean(task.due) && (task.due as string) <= todayKey);
-    return open.sort((left, right) => (left.due as string).localeCompare(right.due as string) || left.order - right.order);
-  }, [state.tasks, todayKey]);
+  const todoSections = useMemo(() => {
+    const sections = sortByOrder(state.sections.filter((section) => !section.deleted));
+    const openTasks = state.tasks.filter((task): task is Task => !task.deleted && !task.done);
+    const liveSectionIds = new Set(sections.map((section) => section.id));
+    const sectionPages = sections.map((section) => ({
+      id: `section:${section.id}`,
+      title: section.title,
+      color: section.color,
+      tasks: sortByOrder(openTasks.filter((task) => task.sectionId === section.id)),
+    }));
+    const recoveredTasks = sortByOrder(openTasks.filter((task) => !liveSectionIds.has(task.sectionId)));
+    if (recoveredTasks.length) {
+      sectionPages.push({
+        id: 'recovered',
+        title: 'Recovered tasks',
+        color: RECOVERED_TASKS_COLOR,
+        tasks: recoveredTasks,
+      });
+    }
+    return sectionPages;
+  }, [state.sections, state.tasks]);
+  const foundTodoSectionIndex = todoSections.findIndex((section) => section.id === activeTodoSectionId);
+  const activeTodoSectionIndex = foundTodoSectionIndex >= 0
+    ? foundTodoSectionIndex
+    : Math.min(lastTodoSectionIndexRef.current, Math.max(todoSections.length - 1, 0));
+  const activeTodoSection = todoSections[activeTodoSectionIndex];
+  const openTaskCount = todoSections.reduce((total, item) => total + item.tasks.length, 0);
+
+  useEffect(() => {
+    const sectionOrder = todoSections.map((section) => section.id).join('\u001f');
+    if (todoSections.length === 0) {
+      todoSectionOrderRef.current = '';
+      lastTodoSectionIndexRef.current = 0;
+      setActiveTodoSectionId(null);
+      return;
+    }
+
+    const currentIndex = todoSections.findIndex((section) => section.id === activeTodoSectionId);
+    if (currentIndex < 0) {
+      const fallbackIndex = Math.min(lastTodoSectionIndexRef.current, todoSections.length - 1);
+      lastTodoSectionIndexRef.current = fallbackIndex;
+      todoSectionOrderRef.current = sectionOrder;
+      setActiveTodoSectionId(todoSections[fallbackIndex].id);
+      const carousel = todoCarouselRef.current;
+      if (carousel) carousel.scrollTo({ left: fallbackIndex * carousel.clientWidth, behavior: 'auto' });
+      return;
+    }
+
+    lastTodoSectionIndexRef.current = currentIndex;
+    if (todoSectionOrderRef.current && todoSectionOrderRef.current !== sectionOrder) {
+      const carousel = todoCarouselRef.current;
+      if (carousel) carousel.scrollTo({ left: currentIndex * carousel.clientWidth, behavior: 'auto' });
+    }
+    todoSectionOrderRef.current = sectionOrder;
+  }, [activeTodoSectionId, todoSections]);
+
+  useEffect(() => {
+    const carousel = todoCarouselRef.current;
+    if (!carousel) return;
+    let previousWidth = carousel.clientWidth;
+
+    function realignAfterResize() {
+      if (!carousel) return;
+      const nextWidth = carousel.clientWidth;
+      if (!nextWidth || nextWidth === previousWidth) return;
+      previousWidth = nextWidth;
+      todoProgrammaticTargetRef.current = null;
+      if (todoScrollSettleTimerRef.current !== null) {
+        window.clearTimeout(todoScrollSettleTimerRef.current);
+        todoScrollSettleTimerRef.current = null;
+      }
+      carousel.scrollTo({ left: lastTodoSectionIndexRef.current * nextWidth, behavior: 'auto' });
+    }
+
+    window.addEventListener('resize', realignAfterResize);
+    return () => window.removeEventListener('resize', realignAfterResize);
+  }, [todoSections.length]);
 
   const planned = plannedMinutes(dayBlocks);
   const busy = busyMinutes(dayBlocks);
@@ -262,6 +346,56 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
     if (!grid) return 0;
     const rect = grid.getBoundingClientRect();
     return clampSlotIndex(Math.floor((clientY - rect.top) / SLOT_HEIGHT));
+  }
+
+  function showTodoSection(index: number) {
+    const nextIndex = Math.min(Math.max(index, 0), todoSections.length - 1);
+    const next = todoSections[nextIndex];
+    const carousel = todoCarouselRef.current;
+    if (!next || !carousel) return;
+    lastTodoSectionIndexRef.current = nextIndex;
+    todoProgrammaticTargetRef.current = nextIndex;
+    if (todoScrollSettleTimerRef.current !== null) {
+      window.clearTimeout(todoScrollSettleTimerRef.current);
+      todoScrollSettleTimerRef.current = null;
+    }
+    setActiveTodoSectionId(next.id);
+    const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    carousel.scrollTo({ left: nextIndex * carousel.clientWidth, behavior });
+  }
+
+  function syncTodoSectionFromScroll() {
+    if (todoScrollFrameRef.current !== null) window.cancelAnimationFrame(todoScrollFrameRef.current);
+    todoScrollFrameRef.current = window.requestAnimationFrame(() => {
+      todoScrollFrameRef.current = null;
+      const carousel = todoCarouselRef.current;
+      if (!carousel || carousel.clientWidth === 0) return;
+      const programmaticTarget = todoProgrammaticTargetRef.current;
+      if (programmaticTarget !== null) {
+        const targetLeft = programmaticTarget * carousel.clientWidth;
+        if (Math.abs(carousel.scrollLeft - targetLeft) > 1) {
+          if (todoScrollSettleTimerRef.current !== null) {
+            window.clearTimeout(todoScrollSettleTimerRef.current);
+          }
+          todoScrollSettleTimerRef.current = window.setTimeout(() => {
+            todoScrollSettleTimerRef.current = null;
+            todoProgrammaticTargetRef.current = null;
+            syncTodoSectionFromScroll();
+          }, 140);
+          return;
+        }
+        todoProgrammaticTargetRef.current = null;
+      }
+      const nextIndex = Math.min(
+        Math.max(Math.round(carousel.scrollLeft / carousel.clientWidth), 0),
+        todoSections.length - 1,
+      );
+      const next = todoSections[nextIndex];
+      if (next) {
+        lastTodoSectionIndexRef.current = nextIndex;
+        setActiveTodoSectionId(next.id);
+      }
+    });
   }
 
   function previewStartFromClientY(clientY: number, grabOffsetY: number, durationMin: number, blockId: string) {
@@ -645,32 +779,104 @@ export function ScheduleView({ state, saveBlock, deleteBlock, copyDayBlocks, cle
         <aside className="schedule-aside">
           <div className="panel aside-panel">
             <div className="panel-heading">
-              <h2><ListChecks aria-hidden="true" /> Due today</h2>
-              <span className="panel-heading-note">{focusTasks.length ? `${focusTasks.length} open` : 'All clear'}</span>
+              <h2><ListChecks aria-hidden="true" /> To-do lists</h2>
+              <span className="panel-heading-note">{openTaskCount ? `${openTaskCount} open` : 'All clear'}</span>
             </div>
-            {focusTasks.length === 0 ? (
+            {todoSections.length === 0 ? (
               <EmptyState
-                icon={<CalendarClock />}
-                title="Nothing due"
-                copy="Tasks with a due date of today (or overdue) appear here so the day plan and the list stay honest together."
+                icon={<ListChecks />}
+                title="No to-do lists"
+                copy="Create a section in the full list and it will appear here."
               />
             ) : (
-              <ul className="focus-list">
-                {focusTasks.map((task) => (
-                  <li key={task.id} className="focus-task">
-                    <input
-                      type="checkbox"
-                      checked={false}
-                      onChange={() => toggleTask(task.id)}
-                      aria-label={`Mark ${task.title || 'untitled task'} done`}
-                    />
-                    <span className="focus-task-title">{task.title || 'Untitled task'}</span>
-                    <span className={`due-chip${task.due && task.due < todayKey ? ' due-chip-overdue' : ''}`}>
-                      {task.due ? formatDueKey(task.due) : ''}
+              <>
+                <div className="todo-carousel-toolbar" style={accentStyle(activeTodoSection.color)}>
+                  <div className="todo-carousel-title">
+                    <span className="section-dot" aria-hidden="true" />
+                    <span>
+                      <strong>{activeTodoSection.title || 'Untitled section'}</strong>
+                      <small>{activeTodoSection.tasks.length ? `${activeTodoSection.tasks.length} open` : 'All clear'}</small>
                     </span>
-                  </li>
-                ))}
-              </ul>
+                  </div>
+                  <div className="todo-carousel-controls">
+                    <span className="todo-carousel-position" aria-live="polite" aria-atomic="true">
+                      <span className="todo-carousel-position-label">
+                        {activeTodoSection.title || 'Untitled section'}, list{' '}
+                      </span>
+                      {activeTodoSectionIndex + 1} / {todoSections.length}
+                    </span>
+                    <button
+                      type="button"
+                      className="icon-button icon-button-quiet todo-carousel-arrow"
+                      onClick={() => showTodoSection(activeTodoSectionIndex - 1)}
+                      disabled={activeTodoSectionIndex === 0}
+                      aria-label="Previous to-do list"
+                    >
+                      <ChevronLeft aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button icon-button-quiet todo-carousel-arrow"
+                      onClick={() => showTodoSection(activeTodoSectionIndex + 1)}
+                      disabled={activeTodoSectionIndex === todoSections.length - 1}
+                      aria-label="Next to-do list"
+                    >
+                      <ChevronRight aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  className="todo-carousel"
+                  ref={todoCarouselRef}
+                  onScroll={syncTodoSectionFromScroll}
+                  role="region"
+                  aria-roledescription="carousel"
+                  aria-label="To-do list sections"
+                >
+                  {todoSections.map(({ id, title, tasks }, sectionIndex) => {
+                    const active = sectionIndex === activeTodoSectionIndex;
+                    return (
+                      <section
+                        className="todo-carousel-slide"
+                        key={id}
+                        role="group"
+                        aria-roledescription="slide"
+                        aria-label={`${title || 'Untitled section'}, list ${sectionIndex + 1} of ${todoSections.length}`}
+                        aria-hidden={!active}
+                      >
+                        {tasks.length === 0 ? (
+                          <div className="todo-carousel-empty">
+                            <ListChecks aria-hidden="true" />
+                            <strong>All clear</strong>
+                            <span>No open tasks in this list.</span>
+                          </div>
+                        ) : (
+                          <ul className="focus-list">
+                            {tasks.map((task) => (
+                              <li key={task.id} className="focus-task">
+                                <input
+                                  type="checkbox"
+                                  checked={false}
+                                  onChange={() => toggleTask(task.id)}
+                                  aria-label={`Mark ${task.title || 'untitled task'} done`}
+                                  tabIndex={active ? 0 : -1}
+                                />
+                                <span className="focus-task-title">{task.title || 'Untitled task'}</span>
+                                {task.due && (
+                                  <span className={`due-chip${task.due < todayKey ? ' due-chip-overdue' : ''}`}>
+                                    {formatDueKey(task.due)}
+                                  </span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </section>
+                    );
+                  })}
+                </div>
+              </>
             )}
             <a className="aside-link" href="#todo">Open the full list →</a>
           </div>
