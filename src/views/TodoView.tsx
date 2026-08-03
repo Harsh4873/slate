@@ -1,12 +1,16 @@
 import {
   ArrowDown,
   ArrowUp,
+  CalendarCheck,
+  CalendarClock,
+  CalendarOff,
   Check,
   ChevronRight,
   Eraser,
   Eye,
   EyeOff,
   Flag,
+  FolderInput,
   FolderPlus,
   GripVertical,
   ListTodo,
@@ -19,7 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { formatDueKey, formatFullDate, isOverdueKey, toDateKey } from '../dates';
+import { addDays, formatDueKey, formatFullDate, isOverdueKey, toDateKey } from '../dates';
 import {
   DEFAULT_SECTION_TITLE,
   PRIORITY_LABELS,
@@ -68,8 +72,7 @@ interface DropTarget {
 
 interface UndoAction {
   label: string;
-  taskIds: string[];
-  sectionId?: string;
+  undo: () => void;
 }
 
 const NEXT_PRIORITY: Record<TaskPriority, TaskPriority | undefined> = {
@@ -77,6 +80,30 @@ const NEXT_PRIORITY: Record<TaskPriority, TaskPriority | undefined> = {
   medium: 'low',
   low: undefined,
 };
+
+// Horizontal swipe on a task row (touch/pen only — mouse users have the move
+// button and drag-and-drop). Right sets the task due today; left opens the
+// move menu. Vertical intent cancels so list scrolling stays native.
+const SWIPE_INTENT_PX = 12;
+const SWIPE_COMMIT_PX = 64;
+const SWIPE_MAX_PX = 96;
+
+interface SwipeState {
+  taskId: string;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  row: HTMLElement;
+  content: HTMLElement;
+  axis: 'undecided' | 'horizontal' | 'cancelled';
+  dx: number;
+}
+
+interface MoveMenuState {
+  taskId: string;
+  top: number;
+  right: number;
+}
 
 function InlineText({ value, onCommit, placeholder, ariaLabel, className }: {
   value: string;
@@ -431,8 +458,10 @@ export function TodoView({
   // caret placement inside the inline inputs keep working.
   const [armedTaskId, setArmedTaskId] = useState<string | null>(null);
   const [undo, setUndo] = useState<UndoAction | null>(null);
+  const [moveMenu, setMoveMenu] = useState<MoveMenuState | null>(null);
   const undoTimerRef = useRef<number>();
   const searchRef = useRef<HTMLInputElement>(null);
+  const swipeRef = useRef<SwipeState | null>(null);
 
   const trimmedQuery = query.trim().toLowerCase();
   const filterActive = filter !== 'all' || trimmedQuery.length > 0;
@@ -477,6 +506,9 @@ export function TodoView({
   const detailsTask = detailsTaskId
     ? state.tasks.find((task) => task.id === detailsTaskId && !task.deleted) ?? null
     : null;
+  const moveMenuTask = moveMenu
+    ? state.tasks.find((task) => task.id === moveMenu.taskId && !task.deleted) ?? null
+    : null;
   // A concurrent delete-section on another device can strand live tasks whose
   // section is now a tombstone; surface them instead of hiding them forever.
   const orphanTasks = useMemo(() => {
@@ -505,6 +537,29 @@ export function TodoView({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  useEffect(() => {
+    if (!moveMenu) return;
+    function onPointerDown(event: PointerEvent) {
+      if (!(event.target as HTMLElement | null)?.closest('.move-menu')) setMoveMenu(null);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setMoveMenu(null);
+    }
+    function onDismiss() {
+      setMoveMenu(null);
+    }
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('scroll', onDismiss, true);
+    window.addEventListener('resize', onDismiss);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('scroll', onDismiss, true);
+      window.removeEventListener('resize', onDismiss);
+    };
+  }, [moveMenu]);
+
   function pushUndo(action: UndoAction) {
     window.clearTimeout(undoTimerRef.current);
     setUndo(action);
@@ -518,14 +573,13 @@ export function TodoView({
 
   function applyUndo() {
     if (!undo) return;
-    if (undo.sectionId) restoreSection(undo.sectionId, undo.taskIds);
-    else restoreTasks(undo.taskIds);
+    undo.undo();
     dismissUndo();
   }
 
   function handleDeleteTask(task: Task) {
     deleteTask(task.id);
-    pushUndo({ label: `Deleted “${task.title || 'Untitled task'}”`, taskIds: [task.id] });
+    pushUndo({ label: `Deleted “${task.title || 'Untitled task'}”`, undo: () => restoreTasks([task.id]) });
   }
 
   function handleDeleteSection(section: Section) {
@@ -533,8 +587,7 @@ export function TodoView({
     deleteSection(section.id);
     pushUndo({
       label: `Deleted “${section.title || 'Untitled section'}”${affected.length ? ` and ${affected.length} ${affected.length === 1 ? 'task' : 'tasks'}` : ''}`,
-      sectionId: section.id,
-      taskIds: affected,
+      undo: () => restoreSection(section.id, affected),
     });
   }
 
@@ -542,7 +595,108 @@ export function TodoView({
     const cleared = (tasksBySection.get(section.id) ?? []).filter((task) => task.done).map((task) => task.id);
     if (!cleared.length) return;
     clearCompleted(section.id);
-    pushUndo({ label: `Cleared ${cleared.length} completed ${cleared.length === 1 ? 'task' : 'tasks'}`, taskIds: cleared });
+    pushUndo({ label: `Cleared ${cleared.length} completed ${cleared.length === 1 ? 'task' : 'tasks'}`, undo: () => restoreTasks(cleared) });
+  }
+
+  function setTaskDue(task: Task, due: string | undefined, label: string) {
+    setMoveMenu(null);
+    if (task.due === due) return;
+    const previousDue = task.due;
+    updateTask(task.id, { due });
+    pushUndo({ label, undo: () => updateTask(task.id, { due: previousDue }) });
+  }
+
+  function moveTaskToSection(task: Task, section: Section) {
+    setMoveMenu(null);
+    if (task.sectionId === section.id) return;
+    const previousSectionId = task.sectionId;
+    moveTask(task.id, section.id, null);
+    pushUndo({
+      label: `Moved to “${section.title || 'Untitled section'}”`,
+      // updateTask (not moveTask) so undo also works for recovered tasks
+      // whose original section is a tombstone.
+      undo: () => updateTask(task.id, { sectionId: previousSectionId }),
+    });
+  }
+
+  function openMoveMenu(task: Task, anchor: HTMLElement) {
+    const rect = anchor.getBoundingClientRect();
+    setMoveMenu({
+      taskId: task.id,
+      top: rect.bottom + 6,
+      right: Math.max(8, window.innerWidth - rect.right),
+    });
+  }
+
+  function resetSwipeVisuals(swipe: SwipeState) {
+    swipe.content.style.transform = '';
+    swipe.row.classList.remove('is-swiping', 'swipe-right', 'swipe-left', 'swipe-armed');
+  }
+
+  function beginSwipe(event: React.PointerEvent<HTMLLIElement>, task: Task) {
+    if (event.pointerType === 'mouse' || !event.isPrimary || moveMenu) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('button, a, select, textarea')) return;
+    const row = event.currentTarget;
+    const content = row.querySelector<HTMLElement>('.task-row-content');
+    if (!content) return;
+    swipeRef.current = {
+      taskId: task.id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      row,
+      content,
+      axis: 'undecided',
+      dx: 0,
+    };
+  }
+
+  function moveSwipe(event: React.PointerEvent<HTMLLIElement>) {
+    const swipe = swipeRef.current;
+    if (!swipe || event.pointerId !== swipe.pointerId || swipe.axis === 'cancelled') return;
+    const dx = event.clientX - swipe.startX;
+    const dy = event.clientY - swipe.startY;
+    if (swipe.axis === 'undecided') {
+      if (Math.abs(dy) > SWIPE_INTENT_PX && Math.abs(dy) > Math.abs(dx)) {
+        swipe.axis = 'cancelled';
+        return;
+      }
+      if (Math.abs(dx) > SWIPE_INTENT_PX && Math.abs(dx) > Math.abs(dy)) {
+        swipe.axis = 'horizontal';
+        try {
+          swipe.row.setPointerCapture(event.pointerId);
+        } catch {
+          // Synthetic pointers (tests) have no capturable id; tracking works anyway.
+        }
+        swipe.row.classList.add('is-swiping');
+      } else {
+        return;
+      }
+    }
+    const clamped = Math.max(-SWIPE_MAX_PX, Math.min(SWIPE_MAX_PX, dx));
+    swipe.dx = clamped;
+    swipe.content.style.transform = `translateX(${clamped}px)`;
+    swipe.row.classList.toggle('swipe-right', clamped > 0);
+    swipe.row.classList.toggle('swipe-left', clamped < 0);
+    swipe.row.classList.toggle('swipe-armed', Math.abs(clamped) >= SWIPE_COMMIT_PX);
+  }
+
+  function endSwipe(event: React.PointerEvent<HTMLLIElement>, task: Task | null) {
+    const swipe = swipeRef.current;
+    if (!swipe || event.pointerId !== swipe.pointerId) return;
+    const committed = task && swipe.axis === 'horizontal' && Math.abs(swipe.dx) >= SWIPE_COMMIT_PX
+      ? swipe.dx > 0 ? 'today' : 'move'
+      : null;
+    resetSwipeVisuals(swipe);
+    swipeRef.current = null;
+    if (!task || !committed) return;
+    if (committed === 'today') setTaskDue(task, todayKey, 'Due set to today');
+    else openMoveMenu(task, swipe.row);
+  }
+
+  function cancelSwipe(event: React.PointerEvent<HTMLLIElement>) {
+    endSwipe(event, null);
   }
 
   function cyclePriority(task: Task) {
@@ -616,82 +770,99 @@ export function TodoView({
           event.preventDefault();
           if (dropTarget) onDropAt(dropTarget);
         }}
+        onPointerDown={(event) => beginSwipe(event, task)}
+        onPointerMove={moveSwipe}
+        onPointerUp={(event) => endSwipe(event, task)}
+        onPointerCancel={cancelSwipe}
       >
-        {draggable && (
-          <span
-            className="task-grip"
-            aria-hidden="true"
-            onPointerDown={() => setArmedTaskId(task.id)}
-            onPointerUp={() => { if (!draggingTaskId) setArmedTaskId(null); }}
-          >
-            <GripVertical />
-          </span>
-        )}
-        <button
-          type="button"
-          className="task-checkbox"
-          role="checkbox"
-          aria-checked={task.done}
-          aria-label={`${task.done ? 'Reopen' : 'Complete'} ${task.title || 'untitled task'}`}
-          onClick={() => toggleTask(task.id)}
-        >
-          <Check aria-hidden="true" />
-        </button>
-        <InlineText
-          value={task.title}
-          onCommit={(title) => updateTask(task.id, { title })}
-          placeholder="Untitled task"
-          ariaLabel={`Task title: ${task.title || 'untitled'}`}
-          className="task-title"
-        />
-        {task.priority && (
+        <span className="swipe-band swipe-band-today" aria-hidden="true"><CalendarCheck /> Today</span>
+        <span className="swipe-band swipe-band-move" aria-hidden="true"><FolderInput /> Move</span>
+        <div className="task-row-content">
+          {draggable && (
+            <span
+              className="task-grip"
+              aria-hidden="true"
+              onPointerDown={() => setArmedTaskId(task.id)}
+              onPointerUp={() => { if (!draggingTaskId) setArmedTaskId(null); }}
+            >
+              <GripVertical />
+            </span>
+          )}
           <button
             type="button"
-            className={`priority-flag priority-${task.priority}`}
-            title={`Priority: ${PRIORITY_LABELS[task.priority]} — click to change`}
-            aria-label={`Priority ${PRIORITY_LABELS[task.priority]} for ${task.title || 'untitled task'}. Click to change.`}
-            onClick={() => cyclePriority(task)}
+            className="task-checkbox"
+            role="checkbox"
+            aria-checked={task.done}
+            aria-label={`${task.done ? 'Reopen' : 'Complete'} ${task.title || 'untitled task'}`}
+            onClick={() => toggleTask(task.id)}
           >
-            <Flag aria-hidden="true" />
+            <Check aria-hidden="true" />
           </button>
-        )}
-        {task.due && (
-          <span className={`due-chip${!task.done && isOverdueKey(task.due) ? ' due-chip-overdue' : ''}`}>
-            {formatDueKey(task.due)}
-          </span>
-        )}
-        {task.notes && <span className="task-note-flag" title="Has notes" aria-label="Has notes"><NotebookPen aria-hidden="true" /></span>}
-        <span className="task-actions">
-          {!task.priority && (
+          <InlineText
+            value={task.title}
+            onCommit={(title) => updateTask(task.id, { title })}
+            placeholder="Untitled task"
+            ariaLabel={`Task title: ${task.title || 'untitled'}`}
+            className="task-title"
+          />
+          {task.priority && (
             <button
               type="button"
-              className="icon-button icon-button-quiet"
-              aria-label={`Set priority for ${task.title || 'untitled task'}`}
-              title="Set priority"
+              className={`priority-flag priority-${task.priority}`}
+              title={`Priority: ${PRIORITY_LABELS[task.priority]} — click to change`}
+              aria-label={`Priority ${PRIORITY_LABELS[task.priority]} for ${task.title || 'untitled task'}. Click to change.`}
               onClick={() => cyclePriority(task)}
             >
               <Flag aria-hidden="true" />
             </button>
           )}
-          <button
-            type="button"
-            className="icon-button icon-button-quiet"
-            aria-label={`Open details for ${task.title || 'untitled task'}`}
-            title="Details"
-            onClick={() => setDetailsTaskId(task.id)}
-          >
-            <NotebookPen aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="icon-button icon-button-quiet"
-            aria-label={`Delete ${task.title || 'untitled task'}`}
-            title="Delete"
-            onClick={() => handleDeleteTask(task)}
-          >
-            <Trash2 aria-hidden="true" />
-          </button>
-        </span>
+          {task.due && (
+            <span className={`due-chip${!task.done && isOverdueKey(task.due) ? ' due-chip-overdue' : ''}`}>
+              {formatDueKey(task.due)}
+            </span>
+          )}
+          {task.notes && <span className="task-note-flag" title="Has notes" aria-label="Has notes"><NotebookPen aria-hidden="true" /></span>}
+          <span className="task-actions">
+            {!task.priority && (
+              <button
+                type="button"
+                className="icon-button icon-button-quiet"
+                aria-label={`Set priority for ${task.title || 'untitled task'}`}
+                title="Set priority"
+                onClick={() => cyclePriority(task)}
+              >
+                <Flag aria-hidden="true" />
+              </button>
+            )}
+            <button
+              type="button"
+              className="icon-button icon-button-quiet"
+              aria-label={`Move or schedule ${task.title || 'untitled task'}`}
+              title="Move / schedule"
+              onClick={(event) => openMoveMenu(task, event.currentTarget)}
+            >
+              <FolderInput aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="icon-button icon-button-quiet"
+              aria-label={`Open details for ${task.title || 'untitled task'}`}
+              title="Details"
+              onClick={() => setDetailsTaskId(task.id)}
+            >
+              <NotebookPen aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="icon-button icon-button-quiet"
+              aria-label={`Delete ${task.title || 'untitled task'}`}
+              title="Delete"
+              onClick={() => handleDeleteTask(task)}
+            >
+              <Trash2 aria-hidden="true" />
+            </button>
+          </span>
+        </div>
       </li>
     );
   }
@@ -915,6 +1086,61 @@ export function TodoView({
           canMoveUp={detailsIndex > 0}
           canMoveDown={detailsIndex >= 0 && detailsIndex < detailsSiblings.length - 1}
         />
+      )}
+
+      {moveMenu && moveMenuTask && (
+        <div
+          className="move-menu"
+          role="menu"
+          aria-label={`Move or schedule ${moveMenuTask.title || 'untitled task'}`}
+          style={{ top: moveMenu.top, right: moveMenu.right }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="move-menu-item"
+            disabled={moveMenuTask.due === todayKey}
+            onClick={() => setTaskDue(moveMenuTask, todayKey, 'Due set to today')}
+          >
+            <CalendarCheck aria-hidden="true" /> Due today
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="move-menu-item"
+            disabled={moveMenuTask.due === toDateKey(addDays(new Date(), 1))}
+            onClick={() => setTaskDue(moveMenuTask, toDateKey(addDays(new Date(), 1)), 'Due set to tomorrow')}
+          >
+            <CalendarClock aria-hidden="true" /> Due tomorrow
+          </button>
+          {moveMenuTask.due && (
+            <button
+              type="button"
+              role="menuitem"
+              className="move-menu-item"
+              onClick={() => setTaskDue(moveMenuTask, undefined, 'Due date removed')}
+            >
+              <CalendarOff aria-hidden="true" /> Clear due date
+            </button>
+          )}
+          <div className="move-menu-separator" role="separator" />
+          <span className="move-menu-label">Move to</span>
+          {sections.filter((section) => section.id !== moveMenuTask.sectionId).map((section) => (
+            <button
+              key={section.id}
+              type="button"
+              role="menuitem"
+              className="move-menu-item"
+              style={accentStyle(section.color)}
+              onClick={() => moveTaskToSection(moveMenuTask, section)}
+            >
+              <span className="section-dot" aria-hidden="true" /> {section.title || 'Untitled section'}
+            </button>
+          ))}
+          {sections.filter((section) => section.id !== moveMenuTask.sectionId).length === 0 && (
+            <span className="move-menu-empty">No other sections yet</span>
+          )}
+        </div>
       )}
 
       {undo && (
