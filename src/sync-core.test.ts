@@ -44,7 +44,6 @@ function makeState(overrides: Partial<SlateState> = {}): SlateState {
     settings: { theme: 'dark', hideCompleted: false, updatedAt: '2026-07-01T10:00:00.000Z' },
     sections: [makeSection()],
     tasks: [makeTask()],
-    blocks: [],
     ...overrides,
   };
 }

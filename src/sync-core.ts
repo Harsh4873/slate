@@ -1,10 +1,10 @@
-import type { Block, Section, SlateSettings, SlateState, Task } from './model';
+import type { Section, SlateSettings, SlateState, Task } from './model';
 
 /**
  * Slate's sync model is per-document last-write-wins:
  *
- *   - Every section, task, and block is its own Firestore document whose id
- *     equals the entity id. Deletes are tombstones (`deleted: true`) so they
+ *   - Every section and task is its own Firestore document whose id equals
+ *     the entity id. Deletes are tombstones (`deleted: true`) so they
  *     propagate to every device instead of resurrecting.
  *   - The root document carries only schema metadata and settings.
  *   - Conflicts resolve entity-by-entity on `updatedAt`, with a canonical
@@ -78,7 +78,6 @@ export function mergeStates(local: SlateState, remote: SlateState): SlateState {
     settings: selectNewer(local.settings, remote.settings),
     sections: mergeById(local.sections, remote.sections),
     tasks: mergeById(local.tasks, remote.tasks),
-    blocks: mergeById(local.blocks, remote.blocks),
   };
 }
 
@@ -98,14 +97,12 @@ export function materializeCloudState(
   root: CloudRootDocument | null,
   sections: unknown[],
   tasks: unknown[],
-  blocks: unknown[],
 ): unknown {
   return {
     version: 1,
     settings: root?.settings ?? { theme: 'dark', hideCompleted: false, updatedAt: new Date(0).toISOString() },
     sections,
     tasks,
-    blocks,
   };
 }
 
@@ -113,7 +110,6 @@ export interface InitialSyncResolution {
   state: SlateState;
   uploadSections: Section[];
   uploadTasks: Task[];
-  uploadBlocks: Block[];
   uploadRoot: boolean;
 }
 
@@ -136,7 +132,6 @@ export function resolveInitialSync(local: SlateState, cloud: SlateState | null):
       state: local,
       uploadSections: local.sections,
       uploadTasks: local.tasks,
-      uploadBlocks: local.blocks,
       uploadRoot: true,
     };
   }
@@ -145,7 +140,6 @@ export function resolveInitialSync(local: SlateState, cloud: SlateState | null):
     state,
     uploadSections: uploadCandidates(state.sections, cloud.sections),
     uploadTasks: uploadCandidates(state.tasks, cloud.tasks),
-    uploadBlocks: uploadCandidates(state.blocks, cloud.blocks),
     uploadRoot: stableStringify(state.settings) !== stableStringify(cloud.settings),
   };
 }

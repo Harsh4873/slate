@@ -23,9 +23,30 @@ describe('parseSlateState', () => {
   });
 
   it('rejects unsupported versions and missing collections', () => {
-    expect(() => parseSlateState({ version: 2, sections: [], tasks: [], blocks: [] })).toThrow(/version/i);
-    expect(() => parseSlateState({ version: 1, sections: [], tasks: [] })).toThrow(/missing/i);
+    expect(() => parseSlateState({ version: 2, sections: [], tasks: [] })).toThrow(/version/i);
+    expect(() => parseSlateState({ version: 1, sections: [] })).toThrow(/missing/i);
     expect(() => parseSlateState(null)).toThrow();
+  });
+
+  it('ignores a legacy blocks array from the retired schedule feature', () => {
+    const state = createInitialState('2026-07-12T10:00:00.000Z');
+    const raw = JSON.parse(JSON.stringify(state));
+    raw.blocks = [
+      {
+        id: 'block-legacy',
+        dateKey: '2026-07-12',
+        startMin: 480,
+        durationMin: 60,
+        title: 'Old schedule block',
+        color: '#8d7cff',
+        createdAt: '2026-07-12T10:00:00.000Z',
+        updatedAt: '2026-07-12T10:00:00.000Z',
+      },
+      'even unreadable entries are fine',
+    ];
+    const parsed = parseSlateState(raw) as unknown as Record<string, unknown>;
+    expect(parsed.blocks).toBeUndefined();
+    expect(parseSlateState(raw).tasks).toHaveLength(3);
   });
 
   it('backfills defaults for settings and invalid colors', () => {
@@ -39,6 +60,16 @@ describe('parseSlateState', () => {
     expect(parsed.sections[0].color).toMatch(/^#[0-9a-f]{6}$/i);
   });
 
+  it('keeps valid priorities and drops unknown ones', () => {
+    const state = createInitialState('2026-07-12T10:00:00.000Z');
+    const raw = JSON.parse(JSON.stringify(state));
+    raw.tasks[0].priority = 'high';
+    raw.tasks[1].priority = 'urgent';
+    const parsed = parseSlateState(raw);
+    expect(parsed.tasks.find((task) => task.id === raw.tasks[0].id)?.priority).toBe('high');
+    expect(parsed.tasks.find((task) => task.id === raw.tasks[1].id)?.priority).toBeUndefined();
+  });
+
   it('keeps tombstones and orphaned tasks so sync snapshots can interleave', () => {
     const state = createInitialState('2026-07-12T10:00:00.000Z');
     const raw = JSON.parse(JSON.stringify(state));
@@ -49,24 +80,11 @@ describe('parseSlateState', () => {
     expect(parsed.tasks.find((task) => task.id === raw.tasks[1].id)?.sectionId).toBe('section-not-seen-yet');
   });
 
-  it('rejects duplicate ids and malformed schedule blocks', () => {
+  it('rejects duplicate ids', () => {
     const state = createInitialState('2026-07-12T10:00:00.000Z');
     const duplicated = JSON.parse(JSON.stringify(state));
     duplicated.tasks.push(duplicated.tasks[0]);
     expect(() => parseSlateState(duplicated)).toThrow(/duplicate/i);
-
-    const badBlock = JSON.parse(JSON.stringify(state));
-    badBlock.blocks.push({
-      id: 'block-bad',
-      dateKey: '2026-07-12',
-      startMin: 400,
-      durationMin: 30,
-      title: 'Too early',
-      color: '#8d7cff',
-      createdAt: '2026-07-12T10:00:00.000Z',
-      updatedAt: '2026-07-12T10:00:00.000Z',
-    });
-    expect(() => parseSlateState(badBlock)).toThrow(/invalid schedule block/i);
   });
 
   it('rejects ids that cannot be Firestore document ids', () => {
