@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { isDateKey, isTimestamp, toDateKey } from './dates';
+import { isDateKey, isTimestamp } from './dates';
 import {
   createInitialState,
+  isPriority,
   makeId,
   DEFAULT_COLOR,
-  type Block,
   type Section,
   type SlateSettings,
   type SlateState,
   type Task,
+  type TaskPriority,
   type ThemePreference,
 } from './model';
 import { needsRebalance, orderBetween, rebalanced, sortByOrder, ORDER_GAP } from './order';
-import { isValidBlockTiming } from './schedule';
 import { mergeStates, stableStringify } from './sync-core';
 
 const DATABASE_NAME = 'slate-todo';
@@ -27,13 +27,17 @@ const INDEXEDDB_SAVE_DELAY_MS = 180;
 export type SlateMutation =
   | { type: 'sections'; sections: Section[] }
   | { type: 'tasks'; tasks: Task[] }
-  | { type: 'blocks'; blocks: Block[] }
   | { type: 'settings'; settings: SlateSettings }
   | { type: 'replace'; state: SlateState };
 
 export type SlateMutationListener = (mutation: SlateMutation) => void;
 
 export type StorageMode = 'indexeddb' | 'localstorage';
+
+export interface TaskExtras {
+  due?: string;
+  priority?: TaskPriority;
+}
 
 export interface SlateStore {
   state: SlateState | null;
@@ -45,16 +49,15 @@ export interface SlateStore {
   toggleSectionCollapsed: (sectionId: string) => void;
   moveSection: (sectionId: string, direction: -1 | 1) => void;
   deleteSection: (sectionId: string) => void;
+  restoreSection: (sectionId: string, taskIds: string[]) => void;
   clearCompleted: (sectionId: string) => void;
-  addTask: (sectionId: string, title: string) => void;
-  updateTask: (taskId: string, patch: Partial<Pick<Task, 'title' | 'notes' | 'due' | 'sectionId'>>) => void;
+  addTask: (sectionId: string, title: string, extras?: TaskExtras) => void;
+  addTaskToNewSection: (sectionTitle: string, title: string, extras?: TaskExtras) => void;
+  updateTask: (taskId: string, patch: Partial<Pick<Task, 'title' | 'notes' | 'due' | 'priority' | 'sectionId'>>) => void;
   toggleTask: (taskId: string) => void;
   moveTask: (taskId: string, sectionId: string, beforeTaskId: string | null) => void;
   deleteTask: (taskId: string) => void;
-  saveBlock: (block: Pick<Block, 'dateKey' | 'startMin' | 'durationMin' | 'title' | 'color'> & { id?: string }) => void;
-  deleteBlock: (blockId: string) => void;
-  copyDayBlocks: (fromDateKey: string, toDateKey: string) => void;
-  clearDayBlocks: (dateKey: string) => void;
+  restoreTasks: (taskIds: string[]) => void;
   updateSettings: (patch: Partial<Pick<SlateSettings, 'theme' | 'hideCompleted'>>) => void;
   replaceState: (state: SlateState) => void;
   resetState: () => void;
@@ -131,29 +134,8 @@ function parseTask(value: unknown): Task | null {
     done: raw.done === true,
     ...(isTimestamp(raw.completedAt) ? { completedAt: raw.completedAt } : {}),
     ...(isDateKey(raw.due) ? { due: raw.due } : {}),
+    ...(isPriority(raw.priority) ? { priority: raw.priority } : {}),
     order: raw.order,
-    createdAt: raw.createdAt,
-    updatedAt: raw.updatedAt,
-    ...(raw.deleted === true ? { deleted: true as const } : {}),
-  };
-}
-
-function parseBlock(value: unknown): Block | null {
-  if (!value || typeof value !== 'object') return null;
-  const raw = value as Record<string, unknown>;
-  if (!isValidEntityId(raw.id)) return null;
-  if (!isDateKey(raw.dateKey)) return null;
-  if (typeof raw.title !== 'string') return null;
-  if (!isTimestamp(raw.createdAt) || !isTimestamp(raw.updatedAt)) return null;
-  if (typeof raw.startMin !== 'number' || typeof raw.durationMin !== 'number') return null;
-  if (!isValidBlockTiming(raw.startMin, raw.durationMin)) return null;
-  return {
-    id: raw.id,
-    dateKey: raw.dateKey,
-    startMin: raw.startMin,
-    durationMin: raw.durationMin,
-    title: raw.title,
-    color: isHexColor(raw.color) ? raw.color : DEFAULT_COLOR,
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,
     ...(raw.deleted === true ? { deleted: true as const } : {}),
@@ -164,9 +146,11 @@ export function parseSlateState(value: unknown): SlateState {
   if (!value || typeof value !== 'object') throw new Error('Slate data must be an object.');
   const raw = value as Record<string, unknown>;
   if (raw.version !== 1) throw new Error('Unsupported Slate data version.');
-  if (!Array.isArray(raw.sections) || !Array.isArray(raw.tasks) || !Array.isArray(raw.blocks)) {
-    throw new Error('Slate data is missing sections, tasks, or blocks.');
+  if (!Array.isArray(raw.sections) || !Array.isArray(raw.tasks)) {
+    throw new Error('Slate data is missing sections or tasks.');
   }
+  // `blocks` from the retired schedule feature may still appear in stored
+  // copies and old backups; it is deliberately ignored, never rejected.
 
   const settingsRaw = (raw.settings ?? {}) as Record<string, unknown>;
   const settings: SlateSettings = {
@@ -195,22 +179,11 @@ export function parseSlateState(value: unknown): SlateState {
     tasks.push(task);
   }
 
-  const blocks: Block[] = [];
-  const seenBlocks = new Set<string>();
-  for (const item of raw.blocks) {
-    const block = parseBlock(item);
-    if (!block) throw new Error('Slate data contains an invalid schedule block.');
-    if (seenBlocks.has(block.id)) throw new Error('Slate data contains duplicate block ids.');
-    seenBlocks.add(block.id);
-    blocks.push(block);
-  }
-
   return {
     version: 1,
     settings,
     sections: sortByOrder(sections),
     tasks: sortByOrder(tasks),
-    blocks,
   };
 }
 
@@ -490,12 +463,6 @@ export function useSlateStore(): SlateStore {
     return changed.length ? { type: 'sections', sections: changed } : null;
   }, []);
 
-  const changedBlocksMutation = useCallback((next: SlateState, previous: SlateState): SlateMutation | null => {
-    const previousById = new Map(previous.blocks.map((block) => [block.id, block]));
-    const changed = next.blocks.filter((block) => previousById.get(block.id) !== block);
-    return changed.length ? { type: 'blocks', blocks: changed } : null;
-  }, []);
-
   const addSection = useCallback((title: string) => {
     const trimmed = title.trim();
     if (!trimmed) return;
@@ -606,6 +573,33 @@ export function useSlateStore(): SlateStore {
     ]);
   }, [commit, changedSectionsMutation, changedTasksMutation]);
 
+  // Undo for deleteSection: un-tombstones the section and exactly the tasks
+  // the caller captured before deleting, with a fresh stamp so the restore
+  // outranks the tombstones in every merge.
+  const restoreSection = useCallback((sectionId: string, taskIds: string[]) => {
+    commit((previous) => {
+      const now = new Date().toISOString();
+      const ids = new Set(taskIds);
+      let changed = false;
+      const sections = previous.sections.map((section) => {
+        if (section.id !== sectionId || !section.deleted) return section;
+        changed = true;
+        const { deleted: _deleted, ...revived } = section;
+        return { ...revived, updatedAt: now };
+      });
+      const tasks = previous.tasks.map((task) => {
+        if (!ids.has(task.id) || !task.deleted) return task;
+        changed = true;
+        const { deleted: _deleted, ...revived } = task;
+        return { ...revived, updatedAt: now };
+      });
+      return changed ? { ...previous, sections, tasks } : previous;
+    }, (next, previous) => [
+      changedSectionsMutation(next, previous),
+      changedTasksMutation(next, previous),
+    ]);
+  }, [commit, changedSectionsMutation, changedTasksMutation]);
+
   const clearCompleted = useCallback((sectionId: string) => {
     commit((previous) => {
       const now = new Date().toISOString();
@@ -622,30 +616,63 @@ export function useSlateStore(): SlateStore {
     }, (next, previous) => [changedTasksMutation(next, previous)]);
   }, [commit, changedTasksMutation]);
 
-  const addTask = useCallback((sectionId: string, title: string) => {
+  const buildTask = useCallback((previous: SlateState, sectionId: string, title: string, extras: TaskExtras | undefined, now: string): Task => {
+    const siblings = previous.tasks.filter((task) => task.sectionId === sectionId && !task.deleted);
+    const lastOrder = siblings.length ? Math.max(...siblings.map((task) => task.order)) : 0;
+    return {
+      id: makeId('task'),
+      sectionId,
+      title,
+      notes: '',
+      done: false,
+      ...(extras?.due && isDateKey(extras.due) ? { due: extras.due } : {}),
+      ...(extras?.priority ? { priority: extras.priority } : {}),
+      order: lastOrder + ORDER_GAP,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }, []);
+
+  const addTask = useCallback((sectionId: string, title: string, extras?: TaskExtras) => {
     const trimmed = title.trim();
     if (!trimmed) return;
     commit((previous) => {
       const section = previous.sections.find((item) => item.id === sectionId && !item.deleted);
       if (!section) return previous;
       const now = new Date().toISOString();
-      const siblings = previous.tasks.filter((task) => task.sectionId === sectionId && !task.deleted);
-      const lastOrder = siblings.length ? Math.max(...siblings.map((task) => task.order)) : 0;
-      const task: Task = {
-        id: makeId('task'),
-        sectionId,
-        title: trimmed,
-        notes: '',
-        done: false,
+      const task = buildTask(previous, sectionId, trimmed, extras, now);
+      return { ...previous, tasks: [...previous.tasks, task] };
+    }, (next, previous) => [changedTasksMutation(next, previous)]);
+  }, [commit, buildTask, changedTasksMutation]);
+
+  // Quick add into a section that does not exist yet: one commit creates the
+  // section and its first task together so undo/sync never see a half state.
+  const addTaskToNewSection = useCallback((sectionTitle: string, title: string, extras?: TaskExtras) => {
+    const trimmedSection = sectionTitle.trim();
+    const trimmed = title.trim();
+    if (!trimmedSection || !trimmed) return;
+    commit((previous) => {
+      const now = new Date().toISOString();
+      const live = previous.sections.filter((section) => !section.deleted);
+      const lastOrder = live.length ? Math.max(...live.map((section) => section.order)) : 0;
+      const section: Section = {
+        id: makeId('section'),
+        title: trimmedSection,
+        color: DEFAULT_COLOR,
         order: lastOrder + ORDER_GAP,
+        collapsed: false,
         createdAt: now,
         updatedAt: now,
       };
-      return { ...previous, tasks: [...previous.tasks, task] };
-    }, (next, previous) => [changedTasksMutation(next, previous)]);
-  }, [commit, changedTasksMutation]);
+      const task = buildTask(previous, section.id, trimmed, extras, now);
+      return { ...previous, sections: [...previous.sections, section], tasks: [...previous.tasks, task] };
+    }, (next, previous) => [
+      changedSectionsMutation(next, previous),
+      changedTasksMutation(next, previous),
+    ]);
+  }, [commit, buildTask, changedSectionsMutation, changedTasksMutation]);
 
-  const updateTask = useCallback((taskId: string, patch: Partial<Pick<Task, 'title' | 'notes' | 'due' | 'sectionId'>>) => {
+  const updateTask = useCallback((taskId: string, patch: Partial<Pick<Task, 'title' | 'notes' | 'due' | 'priority' | 'sectionId'>>) => {
     commit((previous) => {
       const now = new Date().toISOString();
       let changed = false;
@@ -653,6 +680,7 @@ export function useSlateStore(): SlateStore {
         if (task.id !== taskId || task.deleted) return task;
         const nextTask: Task = { ...task, ...patch, updatedAt: now };
         if (patch.due === undefined && 'due' in patch) delete nextTask.due;
+        if (patch.priority === undefined && 'priority' in patch) delete nextTask.priority;
         if (patch.title !== undefined && !patch.title.trim()) nextTask.title = task.title;
         if (patch.sectionId && patch.sectionId !== task.sectionId) {
           const siblings = previous.tasks.filter((item) => item.sectionId === patch.sectionId && !item.deleted);
@@ -739,85 +767,23 @@ export function useSlateStore(): SlateStore {
     }, (next, previous) => [changedTasksMutation(next, previous)]);
   }, [commit, changedTasksMutation]);
 
-  const saveBlock = useCallback((input: Pick<Block, 'dateKey' | 'startMin' | 'durationMin' | 'title' | 'color'> & { id?: string }) => {
+  // Undo for deleteTask / clearCompleted: un-tombstones with a fresh stamp so
+  // the restore wins the last-write-wins merge on every device.
+  const restoreTasks = useCallback((taskIds: string[]) => {
+    if (!taskIds.length) return;
     commit((previous) => {
       const now = new Date().toISOString();
-      if (!isValidBlockTiming(input.startMin, input.durationMin)) return previous;
-      if (input.id) {
-        let changed = false;
-        const blocks = previous.blocks.map((block) => {
-          if (block.id !== input.id || block.deleted) return block;
-          changed = true;
-          return {
-            ...block,
-            dateKey: input.dateKey,
-            startMin: input.startMin,
-            durationMin: input.durationMin,
-            title: input.title,
-            color: input.color,
-            updatedAt: now,
-          };
-        });
-        return changed ? { ...previous, blocks } : previous;
-      }
-      const block: Block = {
-        id: makeId('block'),
-        dateKey: input.dateKey,
-        startMin: input.startMin,
-        durationMin: input.durationMin,
-        title: input.title,
-        color: input.color,
-        createdAt: now,
-        updatedAt: now,
-      };
-      return { ...previous, blocks: [...previous.blocks, block] };
-    }, (next, previous) => [changedBlocksMutation(next, previous)]);
-  }, [commit, changedBlocksMutation]);
-
-  const deleteBlock = useCallback((blockId: string) => {
-    commit((previous) => {
-      const now = new Date().toISOString();
+      const ids = new Set(taskIds);
       let changed = false;
-      const blocks = previous.blocks.map((block) => {
-        if (block.id !== blockId || block.deleted) return block;
+      const tasks = previous.tasks.map((task) => {
+        if (!ids.has(task.id) || !task.deleted) return task;
         changed = true;
-        return { ...block, deleted: true as const, updatedAt: now };
+        const { deleted: _deleted, ...revived } = task;
+        return { ...revived, updatedAt: now };
       });
-      return changed ? { ...previous, blocks } : previous;
-    }, (next, previous) => [changedBlocksMutation(next, previous)]);
-  }, [commit, changedBlocksMutation]);
-
-  const copyDayBlocks = useCallback((fromDateKey: string, toDateKey: string) => {
-    commit((previous) => {
-      const now = new Date().toISOString();
-      const source = previous.blocks.filter((block) => !block.deleted && block.dateKey === fromDateKey);
-      if (!source.length) return previous;
-      const copies: Block[] = source.map((block) => ({
-        id: makeId('block'),
-        dateKey: toDateKey,
-        startMin: block.startMin,
-        durationMin: block.durationMin,
-        title: block.title,
-        color: block.color,
-        createdAt: now,
-        updatedAt: now,
-      }));
-      return { ...previous, blocks: [...previous.blocks, ...copies] };
-    }, (next, previous) => [changedBlocksMutation(next, previous)]);
-  }, [commit, changedBlocksMutation]);
-
-  const clearDayBlocks = useCallback((dateKey: string) => {
-    commit((previous) => {
-      const now = new Date().toISOString();
-      let changed = false;
-      const blocks = previous.blocks.map((block) => {
-        if (block.dateKey !== dateKey || block.deleted) return block;
-        changed = true;
-        return { ...block, deleted: true as const, updatedAt: now };
-      });
-      return changed ? { ...previous, blocks } : previous;
-    }, (next, previous) => [changedBlocksMutation(next, previous)]);
-  }, [commit, changedBlocksMutation]);
+      return changed ? { ...previous, tasks } : previous;
+    }, (next, previous) => [changedTasksMutation(next, previous)]);
+  }, [commit, changedTasksMutation]);
 
   const updateSettings = useCallback((patch: Partial<Pick<SlateSettings, 'theme' | 'hideCompleted'>>) => {
     commit((previous) => {
@@ -832,7 +798,6 @@ export function useSlateStore(): SlateStore {
       const keepIds = new Set([
         ...incoming.sections.map((section) => section.id),
         ...incoming.tasks.map((task) => task.id),
-        ...incoming.blocks.map((block) => block.id),
       ]);
       // Everything not present in the imported state becomes a tombstone so the
       // replacement propagates as deletions to every synced device.
@@ -842,9 +807,6 @@ export function useSlateStore(): SlateStore {
       const tombstoneTasks = previous.tasks
         .filter((task) => !keepIds.has(task.id))
         .map((task) => ({ ...task, deleted: true as const, updatedAt: now }));
-      const tombstoneBlocks = previous.blocks
-        .filter((block) => !keepIds.has(block.id))
-        .map((block) => ({ ...block, deleted: true as const, updatedAt: now }));
 
       const stamp = { updatedAt: now };
       return {
@@ -852,7 +814,6 @@ export function useSlateStore(): SlateStore {
         settings: { ...incoming.settings, ...stamp },
         sections: [...incoming.sections.map((section) => ({ ...section, ...stamp })), ...tombstoneSections],
         tasks: [...incoming.tasks.map((task) => ({ ...task, ...stamp })), ...tombstoneTasks],
-        blocks: [...incoming.blocks.map((block) => ({ ...block, ...stamp })), ...tombstoneBlocks],
       };
     }, (next) => [{ type: 'replace' as const, state: next }]);
   }, [commit]);
@@ -900,16 +861,15 @@ export function useSlateStore(): SlateStore {
     toggleSectionCollapsed,
     moveSection,
     deleteSection,
+    restoreSection,
     clearCompleted,
     addTask,
+    addTaskToNewSection,
     updateTask,
     toggleTask,
     moveTask,
     deleteTask,
-    saveBlock,
-    deleteBlock,
-    copyDayBlocks,
-    clearDayBlocks,
+    restoreTasks,
     updateSettings,
     replaceState,
     resetState,
@@ -926,16 +886,15 @@ export function useSlateStore(): SlateStore {
     toggleSectionCollapsed,
     moveSection,
     deleteSection,
+    restoreSection,
     clearCompleted,
     addTask,
+    addTaskToNewSection,
     updateTask,
     toggleTask,
     moveTask,
     deleteTask,
-    saveBlock,
-    deleteBlock,
-    copyDayBlocks,
-    clearDayBlocks,
+    restoreTasks,
     updateSettings,
     replaceState,
     resetState,

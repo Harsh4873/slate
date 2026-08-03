@@ -1,5 +1,7 @@
 export type ThemePreference = 'dark' | 'light' | 'system';
 
+export type TaskPriority = 'high' | 'medium' | 'low';
+
 export interface SlateSettings {
   theme: ThemePreference;
   hideCompleted: boolean;
@@ -25,19 +27,8 @@ export interface Task {
   done: boolean;
   completedAt?: string;
   due?: string;
+  priority?: TaskPriority;
   order: number;
-  createdAt: string;
-  updatedAt: string;
-  deleted?: boolean;
-}
-
-export interface Block {
-  id: string;
-  dateKey: string;
-  startMin: number;
-  durationMin: number;
-  title: string;
-  color: string;
   createdAt: string;
   updatedAt: string;
   deleted?: boolean;
@@ -48,7 +39,6 @@ export interface SlateState {
   settings: SlateSettings;
   sections: Section[];
   tasks: Task[];
-  blocks: Block[];
 }
 
 export const SLATE_COLORS = [
@@ -71,6 +61,20 @@ export const SLATE_COLOR_NAMES: Record<string, string> = {
 
 export const DEFAULT_COLOR = SLATE_COLORS[0];
 
+export const PRIORITY_ORDER: TaskPriority[] = ['high', 'medium', 'low'];
+
+export const PRIORITY_LABELS: Record<TaskPriority, string> = {
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+};
+
+export function isPriority(value: unknown): value is TaskPriority {
+  return value === 'high' || value === 'medium' || value === 'low';
+}
+
+export const DEFAULT_SECTION_TITLE = 'Inbox';
+
 export function makeId(prefix = 'slate') {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -89,7 +93,7 @@ export function createInitialState(now = new Date(0).toISOString()): SlateState 
     sections: [
       {
         id: inboxId,
-        title: 'Inbox',
+        title: DEFAULT_SECTION_TITLE,
         color: '#b8f35b',
         order: 1000,
         collapsed: false,
@@ -109,19 +113,19 @@ export function createInitialState(now = new Date(0).toISOString()): SlateState 
         updatedAt: now,
       },
       {
-        id: 'starter-task-sections',
+        id: 'starter-task-quick-add',
         sectionId: inboxId,
-        title: 'Add sections for school, work, or projects',
-        notes: '',
+        title: 'Try quick add: type a task with @tomorrow and !high',
+        notes: 'The add bar understands @today, @tomorrow, @fri, dates like @2026-08-15, priorities (!high !med !low), and #section to file the task.',
         done: false,
         order: 2000,
         createdAt: now,
         updatedAt: now,
       },
       {
-        id: 'starter-task-plan',
+        id: 'starter-task-sections',
         sectionId: inboxId,
-        title: 'Block out tomorrow on the Schedule tab',
+        title: 'Add sections for school, work, or projects',
         notes: '',
         done: false,
         order: 3000,
@@ -129,6 +133,5 @@ export function createInitialState(now = new Date(0).toISOString()): SlateState 
         updatedAt: now,
       },
     ],
-    blocks: [],
   };
 }

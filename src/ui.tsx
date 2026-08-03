@@ -1,58 +1,9 @@
-import { ChevronLeft, ChevronRight, RotateCcw, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { SLATE_COLORS, SLATE_COLOR_NAMES } from './model';
 
 export function accentStyle(color: string) {
   return { '--accent-color': color } as CSSProperties;
-}
-
-export function SectionHeading({ eyebrow, title, copy, action }: {
-  eyebrow: string;
-  title: string;
-  copy?: string;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="section-heading">
-      <div>
-        <span className="eyebrow">{eyebrow}</span>
-        <h1 tabIndex={-1}>{title}</h1>
-        {copy && <p>{copy}</p>}
-      </div>
-      {action && <div className="section-heading-action">{action}</div>}
-    </div>
-  );
-}
-
-export function DateSwitcher({ eyebrow, label, onPrevious, onNext, onToday, todayDisabled }: {
-  eyebrow: string;
-  label: string;
-  onPrevious: () => void;
-  onNext: () => void;
-  onToday?: () => void;
-  todayDisabled?: boolean;
-}) {
-  return (
-    <div className="date-switcher">
-      <div className="date-switcher-label">
-        <span className="eyebrow">{eyebrow}</span>
-        <strong>{label}</strong>
-      </div>
-      <div className="date-switcher-tools">
-        {onToday && (
-          <button type="button" className="icon-button" onClick={onToday} disabled={todayDisabled} aria-label="Jump to today" title="Jump to today">
-            <RotateCcw aria-hidden="true" />
-          </button>
-        )}
-        <button type="button" className="icon-button" onClick={onPrevious} aria-label="Previous day">
-          <ChevronLeft aria-hidden="true" />
-        </button>
-        <button type="button" className="icon-button" onClick={onNext} aria-label="Next day">
-          <ChevronRight aria-hidden="true" />
-        </button>
-      </div>
-    </div>
-  );
 }
 
 export function EmptyState({ icon, title, copy, action }: {

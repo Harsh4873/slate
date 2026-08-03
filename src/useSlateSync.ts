@@ -42,7 +42,9 @@ import { parseSlateState, type SlateMutation, type SlateStore } from './store';
 
 const ALLOWED_EMAIL = 'hdav4873@gmail.com';
 const WRITE_BATCH_SIZE = 450;
-const ENTITY_COLLECTIONS = ['sections', 'tasks', 'blocks'] as const;
+// The retired schedule feature's `blocks` collection is intentionally left
+// untouched in the cloud: this client neither reads nor writes it.
+const ENTITY_COLLECTIONS = ['sections', 'tasks'] as const;
 type EntityCollection = (typeof ENTITY_COLLECTIONS)[number];
 
 export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'signed-out' | 'action-needed';
@@ -123,10 +125,10 @@ export function useSlateSync(store: SlateStore): SlateSync {
     let rootReady = false;
     let rootFromCache = true;
     let rootHasPendingWrites = false;
-    const entityDocuments: Record<EntityCollection, unknown[]> = { sections: [], tasks: [], blocks: [] };
-    const entityReady: Record<EntityCollection, boolean> = { sections: false, tasks: false, blocks: false };
-    const entityFromCache: Record<EntityCollection, boolean> = { sections: true, tasks: true, blocks: true };
-    const entityPendingWrites: Record<EntityCollection, boolean> = { sections: false, tasks: false, blocks: false };
+    const entityDocuments: Record<EntityCollection, unknown[]> = { sections: [], tasks: [] };
+    const entityReady: Record<EntityCollection, boolean> = { sections: false, tasks: false };
+    const entityFromCache: Record<EntityCollection, boolean> = { sections: true, tasks: true };
+    const entityPendingWrites: Record<EntityCollection, boolean> = { sections: false, tasks: false };
     let pendingWriteCount = 0;
     let bootstrapInFlight = false;
     let bootstrapSequence = 0;
@@ -241,7 +243,6 @@ export function useSlateSync(store: SlateStore): SlateSync {
         const writes = [
           ...entityWrites(uid, 'sections', mutation.state.sections),
           ...entityWrites(uid, 'tasks', mutation.state.tasks),
-          ...entityWrites(uid, 'blocks', mutation.state.blocks),
         ];
         void trackWrite(commitEntityWrites(uid, writes, serializeRootDocument(mutation.state))).catch(() => undefined);
         return;
@@ -256,11 +257,7 @@ export function useSlateSync(store: SlateStore): SlateSync {
         return;
       }
 
-      const entities = mutation.type === 'sections'
-        ? mutation.sections
-        : mutation.type === 'tasks'
-          ? mutation.tasks
-          : mutation.blocks;
+      const entities = mutation.type === 'sections' ? mutation.sections : mutation.tasks;
       void trackWrite(commitEntityWrites(uid, entityWrites(uid, mutation.type, entities))).catch(() => undefined);
     }
 
@@ -276,7 +273,6 @@ export function useSlateSync(store: SlateStore): SlateSync {
           rootDocument,
           entityDocuments.sections,
           entityDocuments.tasks,
-          entityDocuments.blocks,
         ));
         const local = localStateRef.current;
         if (!local) return;
@@ -350,15 +346,14 @@ export function useSlateSync(store: SlateStore): SlateSync {
         if (!isCloudRoot(data)) throw new Error('The cloud copy has an unsupported format.');
         root = data;
       }
-      const [sections, tasks, blocks] = await Promise.all(
+      const [sections, tasks] = await Promise.all(
         ENTITY_COLLECTIONS.map((name) => getDocs(collection(slateFirestore, 'slate_users', uid, name))),
       );
-      if (!root && sections.empty && tasks.empty && blocks.empty) return null;
+      if (!root && sections.empty && tasks.empty) return null;
       return parseSlateState(materializeCloudState(
         root,
         sections.docs.map((item) => item.data()),
         tasks.docs.map((item) => item.data()),
-        blocks.docs.map((item) => item.data()),
       ));
     }
 
@@ -381,7 +376,6 @@ export function useSlateSync(store: SlateStore): SlateSync {
         const writes = [
           ...entityWrites(authUser.uid, 'sections', resolution.uploadSections),
           ...entityWrites(authUser.uid, 'tasks', resolution.uploadTasks),
-          ...entityWrites(authUser.uid, 'blocks', resolution.uploadBlocks),
         ];
         if (writes.length || resolution.uploadRoot) {
           await trackWrite(commitEntityWrites(
