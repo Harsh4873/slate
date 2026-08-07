@@ -40,7 +40,6 @@ import {
 } from './sync-core';
 import { parseSlateState, type SlateMutation, type SlateStore } from './store';
 
-const ALLOWED_EMAIL = 'hdav4873@gmail.com';
 const WRITE_BATCH_SIZE = 450;
 // The retired schedule feature's `blocks` collection is intentionally left
 // untouched in the cloud: this client neither reads nor writes it.
@@ -410,9 +409,9 @@ export function useSlateSync(store: SlateStore): SlateSync {
         setMessage(navigator.onLine ? 'Sign in once on this device to turn on automatic sync.' : 'You are offline. Local planning is still available.');
         return;
       }
-      if (authUser.email?.toLowerCase() !== ALLOWED_EMAIL || !authUser.emailVerified) {
+      if (!authUser.emailVerified) {
         setStatus('action-needed');
-        setMessage(`Slate only allows ${ALLOWED_EMAIL}.`);
+        setMessage('Use a verified Google account to sync Slate.');
         void firebaseSignOut(firebaseAuth);
         return;
       }
@@ -464,9 +463,9 @@ export function useSlateSync(store: SlateStore): SlateSync {
     try {
       await authPersistenceReady;
       const result = await signInWithPopup(firebaseAuth, googleProvider);
-      if (result.user.email?.toLowerCase() !== ALLOWED_EMAIL || !result.user.emailVerified) {
+      if (!result.user.emailVerified) {
         await firebaseSignOut(firebaseAuth);
-        throw new Error(`Slate only allows ${ALLOWED_EMAIL}.`);
+        throw new Error('Use a verified Google account to sync Slate.');
       }
     } catch (error) {
       setStatus('action-needed');

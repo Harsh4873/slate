@@ -24,7 +24,7 @@ Slate is the private, local-first to-do list published at `harsh.bet/slate/`. Th
 
 ## Firestore rules
 
-Slate shares the `pickledgerpro` Firebase project with Daymark, Fare, and Sift. **`firestore.rules` carries the complete project ruleset (`daymark_users`, `slate_users`, `fare_users`, and `research_users`)** because deploying rules replaces the whole ruleset. The `slate_users/{uid}/blocks` rule is intentionally kept so legacy schedule data stays readable. The Pages workflow does not deploy these rules. When intentionally updating the shared backend, deploy with:
+Slate shares the `pickledgerpro` Firebase project with Gym, Daymark, Fare, Notes, and Research. **`firestore.rules` carries the complete project ruleset** because deploying rules replaces the whole policy. The `slate_users/{uid}/blocks` rule is intentionally kept so legacy schedule data stays readable. The Pages workflow does not deploy these rules. When intentionally updating the shared backend, deploy with:
 
 ```
 firebase deploy --only firestore:rules

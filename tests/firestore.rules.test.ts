@@ -10,7 +10,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { afterAll, afterEach, beforeAll, describe, it } from 'vitest';
 
 const PROJECT_ID = 'demo-slate';
-const ALLOWED_EMAIL = 'hdav4873@gmail.com';
+const TEST_EMAIL = 'user.one@example.com';
 const OWNER_UID = 'slate-owner';
 const EMULATOR_ADDRESS = process.env.FIRESTORE_EMULATOR_HOST;
 
@@ -20,7 +20,7 @@ function authorizedContext(
   overrides: Record<string, unknown> = {},
 ): RulesTestContext {
   return testEnvironment.authenticatedContext(uid, {
-    email: ALLOWED_EMAIL,
+    email: TEST_EMAIL,
     email_verified: true,
     firebase: { sign_in_provider: 'google.com' },
     ...overrides,
@@ -72,13 +72,15 @@ describe.skipIf(!EMULATOR_ADDRESS)('Slate Firestore security rules', () => {
     await assertFails(setDoc(doc(firestore, 'slate_users', OWNER_UID), { ...ROOT_DOC, schemaVersion: 99 }));
   });
 
-  it('rejects other verified Google accounts', async () => {
-    const firestore = authorizedContext(testEnvironment, OWNER_UID, { email: 'someone-else@gmail.com' }).firestore();
-    await assertFails(getDoc(doc(firestore, 'slate_users', OWNER_UID)));
-    await assertFails(setDoc(doc(firestore, 'slate_users', OWNER_UID, 'tasks', 'task-1'), { id: 'task-1' }));
+  it('allows another verified Google account to use its own UID-scoped workspace', async () => {
+    const secondUid = 'second-slate-user';
+    const firestore = authorizedContext(testEnvironment, secondUid, { email: 'someone-else@gmail.com' }).firestore();
+    await assertSucceeds(setDoc(doc(firestore, 'slate_users', secondUid), ROOT_DOC));
+    await assertSucceeds(setDoc(doc(firestore, 'slate_users', secondUid, 'tasks', 'task-1'), { id: 'task-1' }));
+    await assertSucceeds(getDoc(doc(firestore, 'slate_users', secondUid)));
   });
 
-  it('rejects the right email without verification or Google provider', async () => {
+  it('rejects accounts without verification or the Google provider', async () => {
     const unverified = authorizedContext(testEnvironment, OWNER_UID, { email_verified: false }).firestore();
     await assertFails(getDoc(doc(unverified, 'slate_users', OWNER_UID)));
 
