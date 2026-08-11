@@ -17,6 +17,24 @@
     <link rel="icon" type="image/svg+xml" href="/slate/favicon.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="/slate/apple-touch-icon.png" />
     <title>Slate — To-Do</title>
+    <script>
+      // Resolve the theme before first paint so an unset preference follows the
+      // operating system instead of flashing dark. Slate's own preference lives
+      // in its saved state; only an explicit 'light'/'dark' overrides the OS.
+      (() => {
+        const systemTheme = () => (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        let theme = systemTheme();
+        try {
+          const stored = JSON.parse(localStorage.getItem('slate-todo-state-v1') || 'null');
+          const saved = (stored && stored.state ? stored.state : stored)?.settings?.theme;
+          if (saved === 'light' || saved === 'dark') theme = saved;
+        } catch {
+          // Unreadable or blocked storage: the operating system decides.
+        }
+        document.documentElement.dataset.theme = theme;
+        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#f2f3ed' : '#101311');
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

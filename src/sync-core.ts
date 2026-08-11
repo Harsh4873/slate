@@ -100,7 +100,7 @@ export function materializeCloudState(
 ): unknown {
   return {
     version: 1,
-    settings: root?.settings ?? { theme: 'dark', hideCompleted: false, updatedAt: new Date(0).toISOString() },
+    settings: root?.settings ?? { theme: 'system', hideCompleted: false, updatedAt: new Date(0).toISOString() },
     sections,
     tasks,
   };

@@ -1028,11 +1028,13 @@ export function TodoView({
         </div>
       </div>
 
-      {sections.length === 0 && orphanTasks.length === 0 && (
+      {/* Nothing stored yet reads as empty, not as somebody's list: the panel
+          replaces the example tasks a first visit used to be seeded with. */}
+      {liveTasks.length === 0 && orphanTasks.length === 0 && (
         <div className="panel todo-empty-panel">
           <ListTodo aria-hidden="true" />
           <h3>A clean slate</h3>
-          <p>Type in the bar above to add your first task — it lands in an “{DEFAULT_SECTION_TITLE}” section automatically. Sections keep classes, projects, and errands apart.</p>
+          <p>No tasks yet. Type in the bar above to add your first one — it lands in “{DEFAULT_SECTION_TITLE}” unless you name a section with #. Sections keep classes, projects, and errands apart.</p>
         </div>
       )}
 

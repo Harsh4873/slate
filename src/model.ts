@@ -75,6 +75,10 @@ export function isPriority(value: unknown): value is TaskPriority {
 
 export const DEFAULT_SECTION_TITLE = 'Inbox';
 
+// The built-in Inbox id is part of Slate's public surface: the Gmail inbox
+// integration writes tasks straight into this section by id.
+export const STARTER_INBOX_ID = 'starter-inbox';
+
 export function makeId(prefix = 'slate') {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -82,56 +86,30 @@ export function makeId(prefix = 'slate') {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-// Starter content is stamped at epoch 0: the ids are fixed, so a fresh device
-// must never beat a real edit — or a tombstone — of the same starter entity in
-// the last-write-wins merge. Any genuine change immediately outranks this.
+// A fresh device starts with an empty Inbox and no tasks: seeded example tasks
+// were indistinguishable from real ones — they counted as open work in the
+// header and read like somebody else's list to a first-time visitor.
+//
+// The empty Inbox section is kept because quick add and the Gmail integration
+// both file into it by id. It is stamped at epoch 0, so a fresh device never
+// beats a real edit — or a tombstone — of that section in the merge.
 export function createInitialState(now = new Date(0).toISOString()): SlateState {
-  const inboxId = 'starter-inbox';
   return {
     version: 1,
-    settings: { theme: 'dark', hideCompleted: false, updatedAt: now },
+    // 'system' rather than a hard 'dark': an unset preference must follow the
+    // operating system. Choosing a theme in settings stores 'light' or 'dark'.
+    settings: { theme: 'system', hideCompleted: false, updatedAt: now },
     sections: [
       {
-        id: inboxId,
+        id: STARTER_INBOX_ID,
         title: DEFAULT_SECTION_TITLE,
-        color: '#b8f35b',
+        color: DEFAULT_COLOR,
         order: 1000,
         collapsed: false,
         createdAt: now,
         updatedAt: now,
       },
     ],
-    tasks: [
-      {
-        id: 'starter-task-first',
-        sectionId: inboxId,
-        title: 'Check off your first task',
-        notes: '',
-        done: false,
-        order: 1000,
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: 'starter-task-quick-add',
-        sectionId: inboxId,
-        title: 'Try quick add: type a task with @tomorrow and !high',
-        notes: 'The add bar understands @today, @tomorrow, @fri, dates like @2026-08-15, priorities (!high !med !low), and #section to file the task.',
-        done: false,
-        order: 2000,
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: 'starter-task-sections',
-        sectionId: inboxId,
-        title: 'Add sections for school, work, or projects',
-        notes: '',
-        done: false,
-        order: 3000,
-        createdAt: now,
-        updatedAt: now,
-      },
-    ],
+    tasks: [],
   };
 }

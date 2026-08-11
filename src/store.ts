@@ -66,10 +66,20 @@ export interface SlateStore {
   clearLocalData: () => Promise<void>;
 }
 
-interface StorageEnvelope {
+export interface StorageEnvelope {
   storageFormat: typeof STORAGE_FORMAT;
   savedAt: string;
   state: SlateState;
+}
+
+/**
+ * The exact shape Slate leaves in localStorage and IndexedDB. Everything the
+ * app owns lives under `state`; the envelope itself only carries the format
+ * marker and the save stamp. Other read-only surfaces (the launcher's Today
+ * view) parse this, so it is built in one place and exported for fixtures.
+ */
+export function buildStorageEnvelope(state: SlateState, savedAt: Date = new Date()): StorageEnvelope {
+  return { storageFormat: STORAGE_FORMAT, savedAt: savedAt.toISOString(), state };
 }
 
 interface StoredCandidate {
@@ -154,7 +164,9 @@ export function parseSlateState(value: unknown): SlateState {
 
   const settingsRaw = (raw.settings ?? {}) as Record<string, unknown>;
   const settings: SlateSettings = {
-    theme: isTheme(settingsRaw.theme) ? settingsRaw.theme : 'dark',
+    // No stored preference means "follow the operating system", never a
+    // hard-coded dark.
+    theme: isTheme(settingsRaw.theme) ? settingsRaw.theme : 'system',
     hideCompleted: settingsRaw.hideCompleted === true,
     updatedAt: isTimestamp(settingsRaw.updatedAt) ? settingsRaw.updatedAt : new Date(0).toISOString(),
   };
@@ -284,7 +296,6 @@ export function useSlateStore(): SlateStore {
   const [storageWarning, setStorageWarning] = useState<string>();
   const stateRef = useRef<SlateState | null>(null);
   const hydratedRef = useRef(false);
-  const skipNextSaveRef = useRef(false);
   const persistenceSuspendedRef = useRef(false);
   const pendingLocalWritesRef = useRef(new Set<Promise<void>>());
   const mutationListenersRef = useRef(new Set<SlateMutationListener>());
@@ -330,9 +341,12 @@ export function useSlateStore(): SlateStore {
       if (cancelled) return;
 
       candidates.sort((left, right) => right.savedAt - left.savedAt);
-      const chosen = candidates[0]?.state ?? null;
-      if (!chosen) skipNextSaveRef.current = true;
-      const initial = chosen ?? createInitialState();
+      // A first visit hydrates the starter state and then persists it, exactly
+      // like any later load: opening Slate is what makes this device readable
+      // to Slate itself and to the launcher's Today view. The save effect below
+      // writes one envelope per hydration and is idempotent — re-saving the
+      // same state only moves `savedAt`.
+      const initial = candidates[0]?.state ?? createInitialState();
       hydratedRef.current = true;
       stateRef.current = initial;
       setState(initial);
@@ -347,10 +361,6 @@ export function useSlateStore(): SlateStore {
 
   useEffect(() => {
     if (!hydratedRef.current || !state) return;
-    if (skipNextSaveRef.current) {
-      skipNextSaveRef.current = false;
-      return;
-    }
     if (persistenceSuspendedRef.current) return;
 
     // Another signed-out tab may have persisted since we last wrote; merging
@@ -370,11 +380,7 @@ export function useSlateStore(): SlateStore {
       // Unreadable foreign copies are handled by the load-time recovery path.
     }
 
-    const envelope: StorageEnvelope = {
-      storageFormat: STORAGE_FORMAT,
-      savedAt: new Date().toISOString(),
-      state: stateToPersist,
-    };
+    const envelope = buildStorageEnvelope(stateToPersist);
 
     let localSaved = false;
     try {

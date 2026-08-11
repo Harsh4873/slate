@@ -11,12 +11,14 @@ Slate is the private, local-first to-do list published at `harsh.bet/slate/`. Th
 - **Move without opening anything** — every row has a move menu (folder icon) with Due today / Due tomorrow / Clear due and a move-to-section list; on touch, swipe a row right to set it due today or left to open the same menu. Both offer Undo.
 - **Filters + search** — All / Today (due or overdue) / Upcoming chips with live counts, substring search across titles and notes (`/` focuses it), and a synced hide-completed toggle.
 - **Undo, not confirm** — deleting a task or section and clearing completed apply instantly and offer a 6-second Undo toast; restores propagate to every synced device because they outrank the tombstones.
-- **Profile-free chrome** — Google sign-in for automatic sync, dark / light / system theme, JSON export/import, and full reset, all inside the settings dialog.
+- **Profile-free chrome** — Google sign-in for automatic sync, dark / light / system theme, JSON export/import, and full reset, all inside the settings dialog. An unset theme preference follows the operating system, resolved before first paint.
+- **Empty means empty** — a first visit shows an empty Inbox and an onboarding panel, never seeded example tasks that would count as real open work.
 
 ## Architecture
 
 - React 18 + Vite + TypeScript, no runtime dependencies beyond `firebase` and `lucide-react`.
-- Local-first store (`src/store.ts`): state lives in localStorage and IndexedDB (dual-write, newest copy wins on load, corrupt copies preserved under `slate-recovery-*` keys). The app is fully usable signed-out and offline.
+- Local-first store (`src/store.ts`): state lives in localStorage (`slate-todo-state-v1`) and IndexedDB (`slate-todo` → `slate-state` → `current`) as a `{ storageFormat, savedAt, state }` envelope built by `buildStorageEnvelope` — dual-write, newest copy wins on load, corrupt copies preserved under `slate-recovery-*` keys. Opening Slate persists a snapshot, so simply visiting connects the device. The app is fully usable signed-out and offline.
+- That envelope is a public read surface: the launcher's `/today/` dashboard parses it. `tests/fixtures/today-slate-payload.json` is generated from `buildStorageEnvelope` by `src/store.test.ts` and mirrored in the `harsh4873.github.io` repository, which asserts it can still be read.
 - Sync (`src/sync-core.ts` + `src/useSlateSync.ts`): per-document last-write-wins on `updatedAt` with deterministic tie-breaks. Every section and task is its own Firestore document under `slate_users/{uid}`; deletes are tombstones so they propagate instead of resurrecting. Access is restricted to the owner's verified Google account, mirroring Daymark.
 - Quick-add parsing (`src/quickadd.ts`) is a pure module with unit tests.
 - Sign-out waits for pending writes, then clears the local mirror (`src/signout.ts`, same tested contract as Daymark).

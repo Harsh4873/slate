@@ -42,7 +42,9 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(() => ['#profile', '#settings'].includes(window.location.hash));
   const [systemTheme, setSystemTheme] = useState<'dark' | 'light'>(() => (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
   const themePreference = store.state?.settings.theme;
-  const resolvedTheme = themePreference === 'system' ? systemTheme : themePreference ?? 'dark';
+  // Only an explicit 'light'/'dark' choice overrides the operating system;
+  // 'system' and "not loaded yet" both follow the media query.
+  const resolvedTheme = themePreference === 'light' || themePreference === 'dark' ? themePreference : systemTheme;
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: light)');
