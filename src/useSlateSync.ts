@@ -30,6 +30,7 @@ import { createInitialState, makeId, type SlateState } from './model';
 import { finishSafeSignOut } from './signout';
 import {
   isCloudRoot,
+  isVerifiedGoogleAccount,
   materializeCloudState,
   mergeStates,
   resolveInitialSync,
@@ -67,6 +68,20 @@ function friendlySyncError(error: unknown) {
   return error instanceof Error ? error.message : 'Slate could not finish syncing. Your local data is still safe.';
 }
 
+async function hasEligibleSyncSession(user: User): Promise<boolean> {
+  let signInProvider: string | null | undefined;
+  try {
+    signInProvider = (await user.getIdTokenResult()).signInProvider ?? null;
+  } catch {
+    signInProvider = undefined;
+  }
+  return isVerifiedGoogleAccount({
+    email: user.email,
+    emailVerified: user.emailVerified,
+    signInProvider,
+  });
+}
+
 export function useSlateSync(store: SlateStore): SlateSync {
   const [status, setStatus] = useState<SyncStatus>(() => (navigator.onLine ? 'syncing' : 'offline'));
   const [user, setUser] = useState<User | null>(null);
@@ -76,6 +91,7 @@ export function useSlateSync(store: SlateStore): SlateSync {
   const pendingWritesRef = useRef(0);
   const localStateRef = useRef(store.state);
   const activeUserRef = useRef<User | null>(null);
+  const blockedAccountMessageRef = useRef<string | null>(null);
   const stopAllListenersRef = useRef<() => void>(() => undefined);
   const bootstrapActiveUserRef = useRef<() => void>(() => undefined);
   const otherTabsOpenRef = useRef<() => Promise<boolean>>(async () => false);
@@ -131,6 +147,7 @@ export function useSlateSync(store: SlateStore): SlateSync {
     let pendingWriteCount = 0;
     let bootstrapInFlight = false;
     let bootstrapSequence = 0;
+    let authSequence = 0;
 
     function showError(error: unknown) {
       if (disposed) return;
@@ -397,27 +414,43 @@ export function useSlateSync(store: SlateStore): SlateSync {
       if (activeUserRef.current) void bootstrap(activeUserRef.current);
     };
 
-    const unsubscribeAuth = onAuthStateChanged(firebaseAuth, (authUser) => {
-      if (disposed) return;
-      stopAllListeners();
-      activeUid = null;
+    async function startSession(authUser: User, sequence: number) {
+      const eligible = await hasEligibleSyncSession(authUser);
+      if (disposed || sequence !== authSequence) return;
+      if (!eligible) {
+        const reason = 'Slate syncs only verified sessions signed in with Google. Sign in again with the Google button.';
+        blockedAccountMessageRef.current = reason;
+        setStatus('action-needed');
+        setMessage(reason);
+        await firebaseSignOut(firebaseAuth).catch(() => undefined);
+        return;
+      }
+
       activeUserRef.current = authUser;
       setUser(authUser);
-
-      if (!authUser) {
-        setStatus(navigator.onLine ? 'signed-out' : 'offline');
-        setMessage(navigator.onLine ? 'Sign in once on this device to turn on automatic sync.' : 'You are offline. Local planning is still available.');
-        return;
-      }
-      if (!authUser.emailVerified) {
-        setStatus('action-needed');
-        setMessage('Use a verified Google account to sync Slate.');
-        void firebaseSignOut(firebaseAuth);
-        return;
-      }
-
       activeUid = authUser.uid;
       void bootstrap(authUser);
+    }
+
+    const unsubscribeAuth = onAuthStateChanged(firebaseAuth, (authUser) => {
+      if (disposed) return;
+      const sequence = ++authSequence;
+      stopAllListeners();
+      activeUid = null;
+      activeUserRef.current = null;
+      setUser(null);
+
+      if (!authUser) {
+        const reason = blockedAccountMessageRef.current;
+        blockedAccountMessageRef.current = null;
+        setStatus(reason ? 'action-needed' : navigator.onLine ? 'signed-out' : 'offline');
+        setMessage(reason ?? (navigator.onLine
+          ? 'Sign in once on this device to turn on automatic sync.'
+          : 'You are offline. Local planning is still available.'));
+        return;
+      }
+
+      void startSession(authUser, sequence);
     });
 
     function handleOffline() {
@@ -440,6 +473,7 @@ export function useSlateSync(store: SlateStore): SlateSync {
 
     return () => {
       disposed = true;
+      authSequence += 1;
       unsubscribeAuth();
       unsubscribeMutations();
       stopAllListeners();
@@ -463,9 +497,11 @@ export function useSlateSync(store: SlateStore): SlateSync {
     try {
       await authPersistenceReady;
       const result = await signInWithPopup(firebaseAuth, googleProvider);
-      if (!result.user.emailVerified) {
+      if (!await hasEligibleSyncSession(result.user)) {
+        const reason = 'Slate syncs only verified sessions signed in with Google. Sign in again with the Google button.';
+        blockedAccountMessageRef.current = reason;
         await firebaseSignOut(firebaseAuth);
-        throw new Error('Use a verified Google account to sync Slate.');
+        throw new Error(reason);
       }
     } catch (error) {
       setStatus('action-needed');

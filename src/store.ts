@@ -13,7 +13,7 @@ import {
   type ThemePreference,
 } from './model';
 import { needsRebalance, orderBetween, rebalanced, sortByOrder, ORDER_GAP } from './order';
-import { mergeStates, stableStringify } from './sync-core';
+import { mergeStates, stableStringify, timestampAfterState } from './sync-core';
 
 const DATABASE_NAME = 'slate-todo';
 const DATABASE_VERSION = 1;
@@ -473,7 +473,7 @@ export function useSlateStore(): SlateStore {
     const trimmed = title.trim();
     if (!trimmed) return;
     commit((previous) => {
-      const now = new Date().toISOString();
+      const now = timestampAfterState(previous);
       const live = previous.sections.filter((section) => !section.deleted);
       const lastOrder = live.length ? Math.max(...live.map((section) => section.order)) : 0;
       const section: Section = {
@@ -491,7 +491,7 @@ export function useSlateStore(): SlateStore {
 
   const patchSection = useCallback((sectionId: string, patch: Partial<Section>) => {
     commit((previous) => {
-      const now = new Date().toISOString();
+      const now = timestampAfterState(previous);
       let changed = false;
       const sections = previous.sections.map((section) => {
         if (section.id !== sectionId || section.deleted) return section;
@@ -514,7 +514,7 @@ export function useSlateStore(): SlateStore {
 
   const toggleSectionCollapsed = useCallback((sectionId: string) => {
     commit((previous) => {
-      const now = new Date().toISOString();
+      const now = timestampAfterState(previous);
       let changed = false;
       const sections = previous.sections.map((section) => {
         if (section.id !== sectionId || section.deleted) return section;
@@ -531,7 +531,7 @@ export function useSlateStore(): SlateStore {
       const index = live.findIndex((section) => section.id === sectionId);
       const targetIndex = index + direction;
       if (index < 0 || targetIndex < 0 || targetIndex >= live.length) return previous;
-      const now = new Date().toISOString();
+      const now = timestampAfterState(previous);
       const current = live[index];
       const neighbour = live[targetIndex];
       if (current.order === neighbour.order) {
@@ -559,7 +559,7 @@ export function useSlateStore(): SlateStore {
 
   const deleteSection = useCallback((sectionId: string) => {
     commit((previous) => {
-      const now = new Date().toISOString();
+      const now = timestampAfterState(previous);
       let changed = false;
       const sections = previous.sections.map((section) => {
         if (section.id !== sectionId || section.deleted) return section;
@@ -584,7 +584,7 @@ export function useSlateStore(): SlateStore {
   // outranks the tombstones in every merge.
   const restoreSection = useCallback((sectionId: string, taskIds: string[]) => {
     commit((previous) => {
-      const now = new Date().toISOString();
+      const now = timestampAfterState(previous);
       const ids = new Set(taskIds);
       let changed = false;
       const sections = previous.sections.map((section) => {
@@ -608,7 +608,7 @@ export function useSlateStore(): SlateStore {
 
   const clearCompleted = useCallback((sectionId: string) => {
     commit((previous) => {
-      const now = new Date().toISOString();
+      const now = timestampAfterState(previous);
       const doneIds = new Set(
         previous.tasks
           .filter((task) => task.sectionId === sectionId && task.done && !task.deleted)
@@ -645,7 +645,7 @@ export function useSlateStore(): SlateStore {
     commit((previous) => {
       const section = previous.sections.find((item) => item.id === sectionId && !item.deleted);
       if (!section) return previous;
-      const now = new Date().toISOString();
+      const now = timestampAfterState(previous);
       const task = buildTask(previous, sectionId, trimmed, extras, now);
       return { ...previous, tasks: [...previous.tasks, task] };
     }, (next, previous) => [changedTasksMutation(next, previous)]);
@@ -658,7 +658,7 @@ export function useSlateStore(): SlateStore {
     const trimmed = title.trim();
     if (!trimmedSection || !trimmed) return;
     commit((previous) => {
-      const now = new Date().toISOString();
+      const now = timestampAfterState(previous);
       const live = previous.sections.filter((section) => !section.deleted);
       const lastOrder = live.length ? Math.max(...live.map((section) => section.order)) : 0;
       const section: Section = {
@@ -680,7 +680,7 @@ export function useSlateStore(): SlateStore {
 
   const updateTask = useCallback((taskId: string, patch: Partial<Pick<Task, 'title' | 'notes' | 'due' | 'priority' | 'sectionId'>>) => {
     commit((previous) => {
-      const now = new Date().toISOString();
+      const now = timestampAfterState(previous);
       let changed = false;
       const tasks = previous.tasks.map((task) => {
         if (task.id !== taskId || task.deleted) return task;
@@ -701,7 +701,7 @@ export function useSlateStore(): SlateStore {
 
   const toggleTask = useCallback((taskId: string) => {
     commit((previous) => {
-      const now = new Date().toISOString();
+      const now = timestampAfterState(previous);
       let changed = false;
       const tasks = previous.tasks.map((task) => {
         if (task.id !== taskId || task.deleted) return task;
@@ -723,7 +723,7 @@ export function useSlateStore(): SlateStore {
       if (!moving || !targetSection) return previous;
       if (beforeTaskId === taskId) return previous;
 
-      const now = new Date().toISOString();
+      const now = timestampAfterState(previous);
       const siblings = sortByOrder(
         previous.tasks.filter((task) => task.sectionId === sectionId && !task.deleted && task.id !== taskId),
       );
@@ -762,7 +762,7 @@ export function useSlateStore(): SlateStore {
 
   const deleteTask = useCallback((taskId: string) => {
     commit((previous) => {
-      const now = new Date().toISOString();
+      const now = timestampAfterState(previous);
       let changed = false;
       const tasks = previous.tasks.map((task) => {
         if (task.id !== taskId || task.deleted) return task;
@@ -778,7 +778,7 @@ export function useSlateStore(): SlateStore {
   const restoreTasks = useCallback((taskIds: string[]) => {
     if (!taskIds.length) return;
     commit((previous) => {
-      const now = new Date().toISOString();
+      const now = timestampAfterState(previous);
       const ids = new Set(taskIds);
       let changed = false;
       const tasks = previous.tasks.map((task) => {
@@ -793,14 +793,14 @@ export function useSlateStore(): SlateStore {
 
   const updateSettings = useCallback((patch: Partial<Pick<SlateSettings, 'theme' | 'hideCompleted'>>) => {
     commit((previous) => {
-      const settings: SlateSettings = { ...previous.settings, ...patch, updatedAt: new Date().toISOString() };
+      const settings: SlateSettings = { ...previous.settings, ...patch, updatedAt: timestampAfterState(previous) };
       return { ...previous, settings };
     }, (next) => [{ type: 'settings' as const, settings: next.settings }]);
   }, [commit]);
 
   const replaceState = useCallback((incoming: SlateState) => {
     commit((previous) => {
-      const now = new Date().toISOString();
+      const now = timestampAfterState(previous);
       const keepIds = new Set([
         ...incoming.sections.map((section) => section.id),
         ...incoming.tasks.map((task) => task.id),

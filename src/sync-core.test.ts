@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Section, SlateState, Task } from './model';
 import {
   isCloudRoot,
+  isVerifiedGoogleAccount,
+  latestStateTimestamp,
   mergeStates,
   omitUndefinedDeep,
   resolveInitialSync,
@@ -9,6 +11,7 @@ import {
   serializeEntityDocument,
   serializeRootDocument,
   stableStringify,
+  timestampAfterState,
 } from './sync-core';
 
 function makeSection(overrides: Partial<Section> = {}): Section {
@@ -79,6 +82,53 @@ describe('selectNewer', () => {
     const edited = makeTask({ title: 'edited', updatedAt: '2026-07-02T10:00:00.000Z' });
     const tombstone = makeTask({ deleted: true, updatedAt: '2026-07-03T10:00:00.000Z' });
     expect(selectNewer(edited, tombstone).deleted).toBe(true);
+  });
+});
+
+describe('sync account requirements', () => {
+  it('uses the current token provider when available, matching Firestore rules', () => {
+    expect(isVerifiedGoogleAccount({
+      emailVerified: true,
+      email: 'owner@example.test',
+      signInProvider: 'google.com',
+    })).toBe(true);
+    expect(isVerifiedGoogleAccount({
+      emailVerified: false,
+      email: 'owner@example.test',
+      signInProvider: 'google.com',
+    })).toBe(false);
+    expect(isVerifiedGoogleAccount({
+      emailVerified: true,
+      email: 'owner@example.test',
+      signInProvider: 'password',
+    })).toBe(false);
+    expect(isVerifiedGoogleAccount({
+      emailVerified: true,
+      email: 'owner@example.test',
+      signInProvider: undefined,
+    })).toBe(false);
+    expect(isVerifiedGoogleAccount({
+      email: null,
+      emailVerified: true,
+      signInProvider: 'google.com',
+    })).toBe(false);
+  });
+});
+
+describe('clock-skew defence', () => {
+  it('stamps a new edit strictly after a future remote write', () => {
+    const fastRemote = makeState({
+      tasks: [makeTask({ updatedAt: '2036-07-01T10:00:00.000Z' })],
+    });
+    const next = timestampAfterState(fastRemote, Date.parse('2026-07-01T10:00:00.000Z'));
+    expect(Date.parse(next)).toBe(Date.parse('2036-07-01T10:00:00.001Z'));
+    expect(Date.parse(next)).toBeGreaterThan(latestStateTimestamp(fastRemote));
+  });
+
+  it('uses the real device clock when it is already ahead', () => {
+    const local = makeState();
+    const deviceNow = Date.parse('2026-08-01T12:00:00.000Z');
+    expect(timestampAfterState(local, deviceNow)).toBe('2026-08-01T12:00:00.000Z');
   });
 });
 

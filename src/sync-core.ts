@@ -25,6 +25,13 @@ interface Stamped {
   updatedAt: string;
 }
 
+export interface SyncAccountClaims {
+  email: string | null | undefined;
+  emailVerified: boolean;
+  /** `undefined` means the token claim could not be inspected (usually offline). */
+  signInProvider: string | null | undefined;
+}
+
 export function stableStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
   if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`;
@@ -49,6 +56,35 @@ export function omitUndefinedDeep<T>(value: T): T {
 function timestampValue(value: string) {
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
+ * Mirrors the shared rules before Slate opens a private listener. A known
+ * token claim is authoritative: a Google-linked account signed in by another
+ * provider is not a Google session, and a missing claim fails closed.
+ */
+export function isVerifiedGoogleAccount(account: SyncAccountClaims): boolean {
+  return Boolean(account.email?.trim())
+    && account.emailVerified
+    && account.signInProvider === 'google.com';
+}
+
+/** Latest logical write seen anywhere in a Slate document. */
+export function latestStateTimestamp(state: SlateState): number {
+  return Math.max(
+    timestampValue(state.settings.updatedAt),
+    ...state.sections.map((section) => timestampValue(section.updatedAt)),
+    ...state.tasks.map((task) => timestampValue(task.updatedAt)),
+  );
+}
+
+/**
+ * Stamp a local mutation strictly after every write this device has observed.
+ * A phone whose clock runs fast can otherwise pin its copy above a slower
+ * laptop forever; advancing the logical clock lets the next real edit win.
+ */
+export function timestampAfterState(state: SlateState, deviceNow = Date.now()): string {
+  return new Date(Math.max(deviceNow, latestStateTimestamp(state) + 1)).toISOString();
 }
 
 /** LWW with a deterministic tie-break: both sides converge on the same winner. */
