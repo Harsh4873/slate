@@ -5,7 +5,7 @@ Slate is the owner's private, local-first task planner.
 ## Product Boundary
 
 - Slate lives on `main` and publishes under `/slate/`.
-- Keep task and section data local-first, with optional per-UID Firestore sync through a verified Google sign-in.
+- Keep task and section data local-first. Optional Firestore sync resolves a provisioned verified Google session through the canonical shared owner vault, so both approved identities see the same data and unprovisioned identities fail closed.
 - A fresh visitor starts with one empty Inbox and no demo tasks. Never seed content that can be mistaken for somebody else's work.
 - The retired schedule-block feature stays retired. Do not write `blocks` into Slate storage or make Today's integration depend on it.
 - Deletions remain tombstones so they propagate across devices without resurrecting stale tasks.

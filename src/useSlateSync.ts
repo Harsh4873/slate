@@ -40,6 +40,7 @@ import {
   type CloudRootDocument,
 } from './sync-core';
 import { parseSlateState, type SlateMutation, type SlateStore } from './store';
+import { resolveOwnerVault } from './owner-vault';
 
 const WRITE_BATCH_SIZE = 450;
 // The retired schedule feature's `blocks` collection is intentionally left
@@ -373,14 +374,16 @@ export function useSlateSync(store: SlateStore): SlateSync {
       ));
     }
 
-    async function bootstrap(authUser: User) {
+    async function bootstrap() {
       if (bootstrapInFlight || disposed) return;
+      const vaultId = activeUid;
+      if (!vaultId) return;
       bootstrapInFlight = true;
       const sequence = ++bootstrapSequence;
       setStatus(navigator.onLine ? 'syncing' : 'offline');
       setMessage(undefined);
       try {
-        const cloud = await readCloudState(authUser.uid);
+        const cloud = await readCloudState(vaultId);
         if (disposed || sequence !== bootstrapSequence) return;
         const local = localStateRef.current;
         if (!local) return;
@@ -390,18 +393,18 @@ export function useSlateSync(store: SlateStore): SlateSync {
         store.applySyncedState(resolution.state);
 
         const writes = [
-          ...entityWrites(authUser.uid, 'sections', resolution.uploadSections),
-          ...entityWrites(authUser.uid, 'tasks', resolution.uploadTasks),
+          ...entityWrites(vaultId, 'sections', resolution.uploadSections),
+          ...entityWrites(vaultId, 'tasks', resolution.uploadTasks),
         ];
         if (writes.length || resolution.uploadRoot) {
           await trackWrite(commitEntityWrites(
-            authUser.uid,
+            vaultId,
             writes,
             resolution.uploadRoot ? serializeRootDocument(resolution.state) : undefined,
           ));
           if (disposed || sequence !== bootstrapSequence) return;
         }
-        startListeners(authUser.uid);
+        startListeners(vaultId);
         if (navigator.onLine && pendingWriteCount === 0) markSynced();
         else updateConnectionStatus();
       } catch (error) {
@@ -411,7 +414,7 @@ export function useSlateSync(store: SlateStore): SlateSync {
       }
     }
     bootstrapActiveUserRef.current = () => {
-      if (activeUserRef.current) void bootstrap(activeUserRef.current);
+      if (activeUserRef.current) void bootstrap();
     };
 
     async function startSession(authUser: User, sequence: number) {
@@ -426,10 +429,23 @@ export function useSlateSync(store: SlateStore): SlateSync {
         return;
       }
 
+      let membership;
+      try {
+        membership = await resolveOwnerVault(slateFirestore, authUser);
+      } catch (error) {
+        if (disposed || sequence !== authSequence) return;
+        const reason = error instanceof Error ? error.message : 'This account cannot access the shared owner vault.';
+        blockedAccountMessageRef.current = reason;
+        setStatus('action-needed');
+        setMessage(reason);
+        return;
+      }
+      if (disposed || sequence !== authSequence) return;
+
       activeUserRef.current = authUser;
       setUser(authUser);
-      activeUid = authUser.uid;
-      void bootstrap(authUser);
+      activeUid = membership.vaultId;
+      void bootstrap();
     }
 
     const unsubscribeAuth = onAuthStateChanged(firebaseAuth, (authUser) => {
@@ -461,7 +477,7 @@ export function useSlateSync(store: SlateStore): SlateSync {
       if (activeUserRef.current && rootUnsubscribe) {
         setStatus('syncing');
         setMessage(undefined);
-      } else if (activeUserRef.current) void bootstrap(activeUserRef.current);
+      } else if (activeUserRef.current) void bootstrap();
       else {
         setStatus('signed-out');
         setMessage('Sign in once on this device to turn on automatic sync.');

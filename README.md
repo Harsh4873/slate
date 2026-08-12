@@ -19,14 +19,14 @@ Slate is the private, local-first to-do list published at `harsh.bet/slate/`. Th
 - React 18 + Vite + TypeScript, no runtime dependencies beyond `firebase` and `lucide-react`.
 - Local-first store (`src/store.ts`): state lives in localStorage (`slate-todo-state-v1`) and IndexedDB (`slate-todo` → `slate-state` → `current`) as a `{ storageFormat, savedAt, state }` envelope built by `buildStorageEnvelope` — dual-write, newest copy wins on load, corrupt copies preserved under `slate-recovery-*` keys. Opening Slate persists a snapshot, so simply visiting connects the device. The app is fully usable signed-out and offline.
 - That envelope is a public read surface: the launcher's `/today/` dashboard parses it. `tests/fixtures/today-slate-payload.json` is generated from `buildStorageEnvelope` by `src/store.test.ts` and mirrored in the `harsh4873.github.io` repository, which asserts it can still be read.
-- Sync (`src/sync-core.ts` + `src/useSlateSync.ts`): per-document last-write-wins on `updatedAt` with deterministic tie-breaks. Every section and task is its own Firestore document under `slate_users/{uid}`; deletes are tombstones so they propagate instead of resurrecting. Access is restricted to the owner's verified Google account, mirroring Daymark.
+- Sync (`src/sync-core.ts` + `src/useSlateSync.ts`): per-document last-write-wins on `updatedAt` with deterministic tie-breaks. Every section and task is its own Firestore document under `slate_users/{vaultId}`; deletes are tombstones so they propagate instead of resurrecting. The two provisioned verified-Google identities resolve to the same private vault, mirroring Daymark.
 - Quick-add parsing (`src/quickadd.ts`) is a pure module with unit tests.
 - Sign-out waits for pending writes, then clears the local mirror (`src/signout.ts`, same tested contract as Daymark).
 - The retired schedule feature's `blocks` are ignored everywhere: stored copies and backups that still carry a `blocks` array load fine (the array is dropped), and the cloud `blocks` subcollection is neither read nor written.
 
 ## Firestore rules
 
-Slate shares the `pickledgerpro` Firebase project with Gym, Daymark, Fare, Notes, and Research. **`firestore.rules` carries the complete project ruleset** because deploying rules replaces the whole policy. The `slate_users/{uid}/blocks` rule is intentionally kept so legacy schedule data stays readable. The Pages workflow does not deploy these rules. When intentionally updating the shared backend, deploy with:
+Slate shares the `pickledgerpro` Firebase project and canonical private owner vault with the other private harsh.bet apps. Both approved identities resolve to `slate_users/{vaultId}` and unprovisioned identities fail closed. **`firestore.rules` carries the complete project ruleset** because deploying rules replaces the whole policy. The `slate_users/{vaultId}/blocks` rule is intentionally kept so legacy schedule data stays readable. The Pages workflow does not deploy these rules. When intentionally updating the shared backend, deploy with:
 
 ```
 firebase deploy --only firestore:rules
