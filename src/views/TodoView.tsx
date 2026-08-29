@@ -53,12 +53,6 @@ const FILTER_LABELS: Record<TaskFilter, string> = {
   today: 'Today',
 };
 
-const NEXT_PRIORITY: Record<TaskPriority, TaskPriority | undefined> = {
-  high: 'medium',
-  medium: 'low',
-  low: undefined,
-};
-
 interface UndoAction {
   label: string;
   undo?: () => void;
@@ -128,10 +122,11 @@ function QuickAdd({ sections, onSubmit, onCancel }: {
 
   const parsed = useMemo(() => parseQuickAdd(draft), [draft]);
   const hasText = draft.trim().length > 0;
-  const targetSection = parsed.sectionQuery ? matchSection(sections, parsed.sectionQuery) : sections[0];
-  const targetLabel = parsed.sectionQuery && !targetSection
-    ? `new section “${capitalizeSectionTitle(parsed.sectionQuery)}”`
-    : targetSection?.title || DEFAULT_SECTION_TITLE;
+  const showPreview = Boolean(parsed.due || parsed.priority || parsed.sectionQuery);
+  const targetSection = parsed.sectionQuery ? matchSection(sections, parsed.sectionQuery) : undefined;
+  const targetLabel = parsed.sectionQuery
+    ? (targetSection?.title || capitalizeSectionTitle(parsed.sectionQuery))
+    : undefined;
 
   function submit() {
     if (!hasText) return;
@@ -148,8 +143,8 @@ function QuickAdd({ sections, onSubmit, onCancel }: {
           ref={inputRef}
           type="text"
           value={draft}
-          placeholder="Add a task…"
-          aria-label="Add a task. Tokens: @ due date, ! priority, # section."
+          placeholder="Add a task"
+          aria-label="Add a task"
           maxLength={400}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
@@ -169,20 +164,12 @@ function QuickAdd({ sections, onSubmit, onCancel }: {
           </button>
         )}
       </div>
-      {hasText ? (
+      {showPreview && (
         <div className="quick-add-preview" aria-live="polite">
-          <span className="quick-add-chip quick-add-chip-section">{targetLabel}</span>
+          {targetLabel && <span className="quick-add-chip">{targetLabel}</span>}
           {parsed.due && <span className="quick-add-chip">{formatDueKey(parsed.due)}</span>}
-          {parsed.priority && (
-            <span className={`quick-add-chip quick-add-chip-${parsed.priority}`}>
-              <Flag aria-hidden="true" /> {PRIORITY_LABELS[parsed.priority]}
-            </span>
-          )}
+          {parsed.priority && <span className="quick-add-chip">{PRIORITY_LABELS[parsed.priority]}</span>}
         </div>
-      ) : (
-        <p className="quick-add-hint">
-          <kbd>@tomorrow</kbd> due · <kbd>!high</kbd> priority · <kbd>#inbox</kbd> file it
-        </p>
       )}
     </div>
   );
@@ -500,10 +487,6 @@ export function TodoView({
     pushUndo({ label: `Cleared ${cleared.length} completed ${cleared.length === 1 ? 'task' : 'tasks'}`, undo: () => restoreTasks(cleared) });
   }
 
-  function cyclePriority(task: Task) {
-    updateTask(task.id, { priority: task.priority ? NEXT_PRIORITY[task.priority] : 'high' });
-  }
-
   function submitQuickAdd(raw: string) {
     const parsed = parseQuickAdd(raw);
     if (!parsed.title.trim()) return;
@@ -545,19 +528,6 @@ export function TodoView({
             />
             {task.notes.trim() && <span className="task-note" title={task.notes}>{task.notes}</span>}
           </div>
-          <button
-            type="button"
-            className={`priority-flag${task.priority ? ` priority-${task.priority}` : ''}`}
-            title={task.priority ? `Priority: ${PRIORITY_LABELS[task.priority]} — tap to change` : 'Set priority'}
-            aria-label={
-              task.priority
-                ? `Priority ${PRIORITY_LABELS[task.priority]} for ${task.title || 'untitled task'}. Tap to change.`
-                : `Set priority for ${task.title || 'untitled task'}`
-            }
-            onClick={() => cyclePriority(task)}
-          >
-            <Flag aria-hidden="true" />
-          </button>
           {task.due && (
             <span className={`due-chip${!task.done && isOverdueKey(task.due) ? ' due-chip-overdue' : ''}`}>
               {formatDueKey(task.due)}
@@ -611,7 +581,7 @@ export function TodoView({
             className="section-title"
           />
           <span className="section-count">
-            {openTasks.length ? `${openTasks.length} open` : matching.length ? 'done' : 'empty'}
+            {openTasks.length || ''}
           </span>
           <SectionMenu
             section={section}
@@ -650,16 +620,10 @@ export function TodoView({
   return (
     <section className="view todo-view">
       <header className="todo-header">
-        <div className="todo-header-text">
-          <span className="eyebrow">{formatFullDate(new Date())}</span>
-          <h1 tabIndex={-1}>To-Do</h1>
-        </div>
-        <div className="todo-progress" aria-label={`${doneCount} of ${liveTasks.length} tasks done`}>
-          <span>{openCount} open · {doneCount} done</span>
-          <div className="progress-track" aria-hidden="true">
-            <i style={{ width: liveTasks.length ? `${Math.round((doneCount / liveTasks.length) * 100)}%` : '0%' }} />
-          </div>
-        </div>
+        <h1 tabIndex={-1}>{formatFullDate(new Date())}</h1>
+        <span className="todo-count" aria-label={`${openCount} open, ${doneCount} done`}>
+          {openCount ? `${openCount} left` : liveTasks.length ? 'Done' : ''}
+        </span>
       </header>
 
       <QuickAdd
@@ -687,24 +651,14 @@ export function TodoView({
           <button
             type="button"
             className="icon-button"
-            title="New section"
-            aria-label="New section"
-            onClick={() => addSection('New section')}
+            title="New list"
+            aria-label="New list"
+            onClick={() => addSection('New list')}
           >
             <FolderPlus aria-hidden="true" />
           </button>
         </div>
       </div>
-
-      {/* Nothing stored yet reads as empty, not as somebody's list: the panel
-          replaces the example tasks a first visit used to be seeded with. */}
-      {liveTasks.length === 0 && orphanTasks.length === 0 && (
-        <div className="panel todo-empty-panel">
-          <ListTodo aria-hidden="true" />
-          <h3>A clean slate</h3>
-          <p>Add one task above to get started.</p>
-        </div>
-      )}
 
       <div className="todo-sections">
         {sectionCards}
@@ -733,10 +687,10 @@ export function TodoView({
             <EmptyState
               icon={<ListTodo />}
               title="Nothing due today"
-              copy="Open a task to set a due date, or add a new task when you are ready."
+              copy="Add a due date from a task, or go back to all."
               action={(
                 <button type="button" className="button button-secondary" onClick={() => setFilter('all')}>
-                  Show all tasks
+                  Show all
                 </button>
               )}
             />
@@ -801,7 +755,7 @@ function AddTaskInput({ onAdd, onCancel, sectionTitle }: {
         ref={inputRef}
         type="text"
         value={draft}
-        placeholder="Add here"
+        placeholder="New task"
         aria-label={`New task in ${sectionTitle || 'untitled section'}`}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => commit(false)}

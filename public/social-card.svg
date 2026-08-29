@@ -1,29 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <rect width="1200" height="630" fill="#101311"/>
-  <circle cx="1050" cy="90" r="260" fill="#8d7cff" opacity=".09"/>
-  <circle cx="140" cy="620" r="300" fill="#b8f35b" opacity=".08"/>
-  <g transform="translate(82 76)">
-    <rect width="68" height="68" rx="18" fill="#8d7cff"/>
-    <rect x="14" y="16" width="8" height="36" rx="4" fill="#101311"/>
-    <path d="m30 34 7 7 16-18" fill="none" stroke="#101311" stroke-linecap="round" stroke-linejoin="round" stroke-width="7"/>
-    <text x="92" y="29" fill="#f2f4ed" font-family="Arial, sans-serif" font-size="25" font-weight="700" letter-spacing="4">HARSH.BET</text>
-    <text x="92" y="58" fill="#939b92" font-family="Arial, sans-serif" font-size="19" letter-spacing="3">/ SLATE</text>
-  </g>
-  <text x="82" y="275" fill="#f2f4ed" font-family="Georgia, serif" font-size="104" font-weight="700">Slate.</text>
-  <text x="87" y="343" fill="#aeb5ad" font-family="Arial, sans-serif" font-size="34">One quiet list. Clear it.</text>
-  <g transform="translate(83 410)">
-    <rect width="510" height="44" rx="10" fill="#1a1f1b" stroke="#2d352e"/>
-    <rect x="12" y="12" width="20" height="20" rx="6" fill="#b8f35b"/>
-    <path d="m17 22 4 4 8-9" fill="none" stroke="#101311" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"/>
-    <rect x="44" y="18" width="180" height="8" rx="4" fill="#3f4941"/>
-    <rect y="56" width="510" height="44" rx="10" fill="#1a1f1b" stroke="#2d352e"/>
-    <rect x="12" y="68" width="20" height="20" rx="6" fill="none" stroke="#59635a" stroke-width="2"/>
-    <rect x="44" y="74" width="220" height="8" rx="4" fill="#59635a"/>
-    <path d="m470 66 5 4-5 4 2-4z" fill="#ff8e64"/>
-    <rect x="380" y="70" width="70" height="16" rx="8" fill="#202621" stroke="#2d352e"/>
-    <rect x="390" y="76" width="50" height="4" rx="2" fill="#59635a"/>
-    <rect y="112" width="510" height="44" rx="10" fill="#1a1f1b" stroke="#2d352e"/>
-    <rect x="12" y="124" width="20" height="20" rx="6" fill="none" stroke="#59635a" stroke-width="2"/>
-    <rect x="44" y="130" width="150" height="8" rx="4" fill="#59635a"/>
+  <rect width="1200" height="630" fill="#f2f2f7"/>
+  <text x="80" y="250" fill="#111111" font-family="Georgia, serif" font-size="92" font-weight="700">Slate</text>
+  <text x="84" y="310" fill="#8e8e93" font-family="Arial, sans-serif" font-size="28">A quiet list.</text>
+  <g transform="translate(80 380)">
+    <rect width="420" height="48" rx="12" fill="#ffffff"/>
+    <circle cx="28" cy="24" r="9" fill="none" stroke="#3a6ea5" stroke-width="2.5"/>
+    <rect x="50" y="20" width="180" height="8" rx="4" fill="#d8d8de"/>
+    <rect y="60" width="420" height="48" rx="12" fill="#ffffff"/>
+    <circle cx="28" cy="84" r="9" fill="#3a6ea5"/>
+    <path d="m23 84 3.5 3.5 8-9" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-width="2"/>
+    <rect x="50" y="80" width="140" height="8" rx="4" fill="#c7c7cc"/>
   </g>
 </svg>

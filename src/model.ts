@@ -42,21 +42,21 @@ export interface SlateState {
 }
 
 export const SLATE_COLORS = [
-  '#b8f35b',
-  '#8d7cff',
-  '#ff8e64',
-  '#58c9d6',
-  '#f2c94c',
-  '#e37ec1',
+  '#3a6ea5',
+  '#5c8a6a',
+  '#c08a4a',
+  '#8a6b9a',
+  '#9a6b5c',
+  '#5a8a8a',
 ] as const;
 
 export const SLATE_COLOR_NAMES: Record<string, string> = {
-  '#b8f35b': 'Lime',
-  '#8d7cff': 'Violet',
-  '#ff8e64': 'Coral',
-  '#58c9d6': 'Cyan',
-  '#f2c94c': 'Gold',
-  '#e37ec1': 'Pink',
+  '#3a6ea5': 'Blue',
+  '#5c8a6a': 'Sage',
+  '#c08a4a': 'Amber',
+  '#8a6b9a': 'Plum',
+  '#9a6b5c': 'Clay',
+  '#5a8a8a': 'Teal',
 };
 
 export const DEFAULT_COLOR = SLATE_COLORS[0];

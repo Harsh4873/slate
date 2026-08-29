@@ -4,14 +4,14 @@ Slate is the private, local-first to-do list published at `harsh.bet/slate/`. Th
 
 ## Product model
 
-- **One screen.** The whole app is the list: a quick-add bar, filters, and sections. Settings (sync, theme, backup) live in a dialog behind the gear icon.
-- **Quick add** — one input that files tasks anywhere: `@today` / `@tomorrow` / `@fri` / `@2026-08-15` set the due date, `!high` / `!med` / `!low` (or `!1` `!2` `!3`) set priority, and `#section` targets a section by name (creating it if it does not exist). Unrecognised tokens stay in the title; a live preview shows exactly where the task will land.
-- **Sections** — grouped lists with inline-editable titles, per-section colors, collapse, and clear-completed.
-- **Tasks** — due dates with overdue highlighting, three-level priorities (flag tap cycles them), notes, and a details dialog for everything else.
-- **Filters** — All / Today (due or overdue) chips with live counts.
-- **Undo, not confirm** — deleting a task or section and clearing completed apply instantly and offer a 6-second Undo toast; restores propagate to every synced device because they outrank the tombstones. Cancelled edits leave a short notice instead of writing.
-- **Profile-free chrome** — Google sign-in for automatic sync, dark / light / system theme, JSON export/import, and full reset, all inside the settings dialog. An unset theme preference follows the operating system, resolved before first paint. The sun/moon control flips Light and Dark immediately.
-- **Empty means empty** — a first visit shows an empty Inbox and an onboarding panel, never seeded example tasks that would count as real open work.
+- **One screen.** The list is the app: add a task, switch All / Today, open settings from the gear.
+- **Quick add** — type a task and press Add. Optional tokens still work if you already use them (`@today`, `!high`, `#section`) but they are not advertised in the chrome.
+- **Lists** — named groups with a color dot, collapse, and clear-completed. Extra lists sit behind the folder button.
+- **Tasks** — a title, optional due date, optional notes. Priority and the rest live in the details sheet.
+- **Filters** — All, or Today (due or overdue).
+- **Undo, not confirm** — deletes and clear-completed offer a short Undo. Cancelled edits say that nothing was saved.
+- **Settings** — Google sign-in for sync, Light / Dark / System, export / import / reset. An unset theme follows the operating system, applied before first paint. The sun/moon control flips Light and Dark.
+- **Empty means empty** — a first visit is an empty Inbox, never sample tasks.
 
 ## Architecture
 

@@ -1,40 +1,17 @@
 import {
-  CircleAlert,
-  Cloud,
-  CloudOff,
   LoaderCircle,
-  LogIn,
   Moon,
   Settings2,
   ShieldCheck,
-  SquareCheckBig,
   Sun,
-  type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSlateStore } from './store';
-import { useSlateSync, type SyncStatus } from './useSlateSync';
+import { useSlateSync } from './useSlateSync';
 import { SettingsModal } from './views/SettingsModal';
 import { TodoView } from './views/TodoView';
 
-const THEME_COLOR = { light: '#f2f3ed', dark: '#101311' } as const;
-
-const SYNC_PRESENTATION: Record<SyncStatus, { label: string; icon: LucideIcon }> = {
-  synced: { label: 'Synced', icon: Cloud },
-  syncing: { label: 'Syncing', icon: LoaderCircle },
-  offline: { label: 'Offline', icon: CloudOff },
-  'signed-out': { label: 'Sign in', icon: LogIn },
-  'action-needed': { label: 'Action needed', icon: CircleAlert },
-};
-
-function SlateLogo() {
-  return (
-    <span className="slate-logo" aria-hidden="true">
-      <i className="slate-logo-bar" />
-      <i className="slate-logo-check"><SquareCheckBig /></i>
-    </span>
-  );
-}
+const THEME_COLOR = { light: '#f2f2f7', dark: '#000000' } as const;
 
 export default function App() {
   const store = useSlateStore();
@@ -72,15 +49,12 @@ export default function App() {
   if (!store.state) {
     return (
       <div className="loading-screen" role="status">
-        <SlateLogo />
-        <span>Opening your local-first to-do list…</span>
+        <span>Slate</span>
       </div>
     );
   }
 
   const state = store.state;
-  const syncPresentation = SYNC_PRESENTATION[sync.status];
-  const SyncIcon = syncPresentation.icon;
 
   function toggleTheme() {
     store.updateSettings({ theme: resolvedTheme === 'dark' ? 'light' : 'dark' });
@@ -106,35 +80,18 @@ export default function App() {
       </a>
 
       <header className="app-header">
-        <span className="brand-link">
-          <SlateLogo />
-          <span>
-            <strong>Slate</strong>
-            <small>harsh.bet / slate</small>
-          </span>
-        </span>
-
+        <span className="brand-link">Slate</span>
         <div className="header-tools">
           <button
             type="button"
-            className={`sync-status sync-status-${sync.status}`}
-            title={sync.message ?? `${syncPresentation.label}. Open settings.`}
-            aria-label={`${syncPresentation.label}. Open settings.`}
-            onClick={() => setSettingsOpen(true)}
-          >
-            <SyncIcon aria-hidden="true" className={sync.status === 'syncing' ? 'spin' : undefined} />
-            <span>{syncPresentation.label}</span>
-          </button>
-          <button
-            type="button"
-            className="theme-toggle"
+            className="icon-button"
             onClick={toggleTheme}
             aria-label={`Switch to ${resolvedTheme === 'dark' ? 'light' : 'dark'} theme`}
             title={`Switch to ${resolvedTheme === 'dark' ? 'light' : 'dark'} theme`}
           >
             {resolvedTheme === 'dark' ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
           </button>
-          <button type="button" className="theme-toggle" onClick={() => setSettingsOpen(true)} aria-label="Open settings" title="Open settings">
+          <button type="button" className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Open settings" title="Open settings">
             <Settings2 aria-hidden="true" />
           </button>
         </div>
