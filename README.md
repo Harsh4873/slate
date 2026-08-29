@@ -5,9 +5,9 @@ Slate is the private, local-first to-do list published at `harsh.bet/slate/`. Th
 ## Product model
 
 - **One screen.** The list is the app: add a task, switch All / Today, open settings from the gear.
-- **Quick add** — type a task and press Add. Optional tokens still work if you already use them (`@today`, `!high`, `#section`) but they are not advertised in the chrome.
+- **Quick add** — type a task and press Add. Optional tokens still work if you already use them (`@today`, `#section`) but they are not advertised in the chrome.
 - **Lists** — named groups with a color dot, collapse, and clear-completed. Extra lists sit behind the folder button.
-- **Tasks** — a title, optional due date, optional notes. Priority and the rest live in the details sheet.
+- **Tasks** — a title, optional due date, optional notes. Drag the handle to reorder, including to the bottom of a list, or drop a task onto another list.
 - **Filters** — All, or Today (due or overdue).
 - **Undo, not confirm** — deletes and clear-completed offer a short Undo. Cancelled edits say that nothing was saved.
 - **Settings** — Google sign-in for sync, Light / Dark / System, export / import / reset. An unset theme follows the operating system, applied before first paint. The sun/moon control flips Light and Dark.

@@ -120,6 +120,7 @@ export default function App() {
           addTaskToNewSection={store.addTaskToNewSection}
           updateTask={store.updateTask}
           toggleTask={store.toggleTask}
+          moveTask={store.moveTask}
           deleteTask={store.deleteTask}
           restoreTasks={store.restoreTasks}
         />

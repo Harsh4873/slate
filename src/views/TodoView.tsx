@@ -4,8 +4,8 @@ import {
   Check,
   ChevronRight,
   Eraser,
-  Flag,
   FolderPlus,
+  GripVertical,
   ListTodo,
   MoreHorizontal,
   Plus,
@@ -13,15 +13,14 @@ import {
   Undo2,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { formatDueKey, formatFullDate, isOverdueKey, toDateKey } from '../dates';
+import { resolveDropFromPoint, sameDropTarget, type DropTarget } from '../drop-target';
 import {
   DEFAULT_SECTION_TITLE,
-  PRIORITY_LABELS,
   type Section,
   type SlateState,
   type Task,
-  type TaskPriority,
 } from '../model';
 import { sortByOrder } from '../order';
 import { capitalizeSectionTitle, matchSection, parseQuickAdd } from '../quickadd';
@@ -42,6 +41,7 @@ interface TodoViewProps {
   addTaskToNewSection: SlateStore['addTaskToNewSection'];
   updateTask: SlateStore['updateTask'];
   toggleTask: SlateStore['toggleTask'];
+  moveTask: SlateStore['moveTask'];
   deleteTask: SlateStore['deleteTask'];
   restoreTasks: SlateStore['restoreTasks'];
 }
@@ -122,7 +122,7 @@ function QuickAdd({ sections, onSubmit, onCancel }: {
 
   const parsed = useMemo(() => parseQuickAdd(draft), [draft]);
   const hasText = draft.trim().length > 0;
-  const showPreview = Boolean(parsed.due || parsed.priority || parsed.sectionQuery);
+  const showPreview = Boolean(parsed.due || parsed.sectionQuery);
   const targetSection = parsed.sectionQuery ? matchSection(sections, parsed.sectionQuery) : undefined;
   const targetLabel = parsed.sectionQuery
     ? (targetSection?.title || capitalizeSectionTitle(parsed.sectionQuery))
@@ -168,7 +168,6 @@ function QuickAdd({ sections, onSubmit, onCancel }: {
         <div className="quick-add-preview" aria-live="polite">
           {targetLabel && <span className="quick-add-chip">{targetLabel}</span>}
           {parsed.due && <span className="quick-add-chip">{formatDueKey(parsed.due)}</span>}
-          {parsed.priority && <span className="quick-add-chip">{PRIORITY_LABELS[parsed.priority]}</span>}
         </div>
       )}
     </div>
@@ -256,7 +255,6 @@ function TaskDetailsModal({ task, sections, onClose, onCancel, updateTask, toggl
   const [notes, setNotes] = useState(task.notes);
   const [due, setDue] = useState(task.due ?? '');
   const [sectionId, setSectionId] = useState(task.sectionId);
-  const [priority, setPriority] = useState<TaskPriority | undefined>(task.priority);
   const [done, setDone] = useState(task.done);
 
   function cancel() {
@@ -266,23 +264,15 @@ function TaskDetailsModal({ task, sections, onClose, onCancel, updateTask, toggl
 
   function save() {
     const nextTitle = title.trim() || task.title;
-    const patch: Partial<Pick<Task, 'title' | 'notes' | 'due' | 'priority' | 'sectionId'>> = {};
+    const patch: Partial<Pick<Task, 'title' | 'notes' | 'due' | 'sectionId'>> = {};
     if (nextTitle !== task.title) patch.title = nextTitle;
     if (notes !== task.notes) patch.notes = notes;
     if (due !== (task.due ?? '')) patch.due = due || undefined;
     if (sectionId !== task.sectionId) patch.sectionId = sectionId;
-    if (priority !== task.priority) patch.priority = priority;
     if (Object.keys(patch).length) updateTask(task.id, patch);
     if (done !== task.done) toggleTask(task.id);
     onClose();
   }
-
-  const priorityChoices: Array<{ value: TaskPriority | undefined; label: string }> = [
-    { value: undefined, label: 'None' },
-    { value: 'low', label: PRIORITY_LABELS.low },
-    { value: 'medium', label: PRIORITY_LABELS.medium },
-    { value: 'high', label: PRIORITY_LABELS.high },
-  ];
 
   return (
     <Modal
@@ -345,25 +335,6 @@ function TaskDetailsModal({ task, sections, onClose, onCancel, updateTask, toggl
           </label>
         </div>
 
-        <div className="field">
-          <span className="field-label" id={`task-priority-${task.id}`}>Priority</span>
-          <div className="priority-options" role="radiogroup" aria-labelledby={`task-priority-${task.id}`}>
-            {priorityChoices.map(({ value, label }) => (
-              <button
-                key={label}
-                type="button"
-                role="radio"
-                aria-checked={priority === value}
-                className={`priority-option${priority === value ? ' selected' : ''}${value ? ` priority-${value}` : ''}`}
-                onClick={() => setPriority(value)}
-              >
-                {value && <Flag aria-hidden="true" />}
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
         <label className="field">
           <span className="field-label">Notes</span>
           <textarea
@@ -392,13 +363,19 @@ export function TodoView({
   addTaskToNewSection,
   updateTask,
   toggleTask,
+  moveTask,
   deleteTask,
   restoreTasks,
 }: TodoViewProps) {
   const [filter, setFilter] = useState<TaskFilter>('all');
   const [detailsTaskId, setDetailsTaskId] = useState<string | null>(null);
   const [undo, setUndo] = useState<UndoAction | null>(null);
+  const [dragTaskId, setDragTaskId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   const undoTimerRef = useRef<number>();
+  const dragTaskIdRef = useRef<string | null>(null);
+  const dropTargetRef = useRef<DropTarget | null>(null);
+  const finishDragRef = useRef<(apply: boolean) => void>(() => {});
 
   const filterActive = filter !== 'all';
   const todayKey = toDateKey(new Date());
@@ -444,6 +421,51 @@ export function TodoView({
   }, [sections, state.tasks]);
 
   useEffect(() => () => window.clearTimeout(undoTimerRef.current), []);
+
+  finishDragRef.current = (apply: boolean) => {
+    const taskId = dragTaskIdRef.current;
+    if (!taskId) return;
+    const target = dropTargetRef.current;
+    dragTaskIdRef.current = null;
+    dropTargetRef.current = null;
+    setDragTaskId(null);
+    setDropTarget(null);
+    document.body.classList.remove('is-dragging-task');
+    if (apply && target) moveTask(taskId, target.sectionId, target.beforeTaskId);
+  };
+
+  useEffect(() => {
+    if (!dragTaskId) return;
+    const movingId = dragTaskId;
+    document.body.classList.add('is-dragging-task');
+
+    function onMove(event: PointerEvent) {
+      const edge = 56;
+      if (event.clientY < edge) window.scrollBy(0, -18);
+      else if (event.clientY > window.innerHeight - edge) window.scrollBy(0, 18);
+      const next = resolveDropFromPoint(event.clientX, event.clientY, movingId);
+      dropTargetRef.current = next;
+      setDropTarget((current) => (sameDropTarget(current, next) ? current : next));
+    }
+
+    function onUp() {
+      finishDragRef.current(true);
+    }
+
+    function onCancel() {
+      finishDragRef.current(false);
+    }
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      document.body.classList.remove('is-dragging-task');
+    };
+  }, [dragTaskId]);
 
   function pushUndo(action: UndoAction) {
     window.clearTimeout(undoTimerRef.current);
@@ -501,13 +523,35 @@ export function TodoView({
     else addTaskToNewSection(DEFAULT_SECTION_TITLE, parsed.title, extras);
   }
 
+  function startDrag(event: ReactPointerEvent<HTMLButtonElement>, taskId: string) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragTaskIdRef.current = taskId;
+    dropTargetRef.current = null;
+    setDropTarget(null);
+    setDragTaskId(taskId);
+  }
+
   function taskRow(task: Task) {
+    const droppingBefore = dropTarget?.beforeTaskId === task.id;
     return (
       <li
         key={task.id}
-        className={`task-row${task.done ? ' is-done' : ''}`}
+        data-drop-task={task.id}
+        className={`task-row${task.done ? ' is-done' : ''}${dragTaskId === task.id ? ' is-dragging' : ''}${droppingBefore ? ' drop-before' : ''}`}
       >
         <div className="task-row-content">
+          <button
+            type="button"
+            className="task-grip"
+            aria-label={`Reorder ${task.title || 'untitled task'}`}
+            onPointerDown={(event) => startDrag(event, task.id)}
+            onPointerUp={() => finishDragRef.current(true)}
+            onPointerCancel={() => finishDragRef.current(false)}
+          >
+            <GripVertical aria-hidden="true" />
+          </button>
           <button
             type="button"
             className="task-checkbox"
@@ -558,10 +602,19 @@ export function TodoView({
     if (filterActive && visibleTasks.length === 0) return null;
     anyVisible = anyVisible || visibleTasks.length > 0 || !filterActive;
     const showBody = filterActive || !section.collapsed;
+    const droppingHere = dropTarget?.sectionId === section.id;
+    const droppingAtEnd = droppingHere && dropTarget?.beforeTaskId === null && showBody;
+    const firstAnchorId = visibleTasks.find((task) => task.id !== dragTaskId)?.id;
+    const droppingAtStart = droppingHere && (!showBody || (Boolean(firstAnchorId) && dropTarget?.beforeTaskId === firstAnchorId));
 
     return (
-      <section className="todo-section" key={section.id} style={accentStyle(section.color)}>
-        <header className="todo-section-header">
+      <section
+        className="todo-section"
+        key={section.id}
+        data-drop-section={section.id}
+        style={accentStyle(section.color)}
+      >
+        <header className={`todo-section-header${droppingAtStart ? ' drop-start' : ''}`} data-drop-start="">
           <button
             type="button"
             className={`collapse-toggle${section.collapsed && !filterActive ? '' : ' is-open'}`}
@@ -596,7 +649,7 @@ export function TodoView({
         </header>
 
         {showBody && (
-          <div className="todo-section-body">
+          <div className={`todo-section-body${droppingAtEnd ? ' drop-end' : ''}`}>
             {visibleTasks.length > 0 && (
               <ul className="task-list">
                 {visibleTasks.map(taskRow)}
