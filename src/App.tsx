@@ -1,16 +1,31 @@
 import {
+  CircleAlert,
+  Cloud,
+  CloudOff,
   LoaderCircle,
+  LogIn,
   Moon,
   Settings2,
   ShieldCheck,
   SquareCheckBig,
   Sun,
+  type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSlateStore } from './store';
-import { useSlateSync } from './useSlateSync';
+import { useSlateSync, type SyncStatus } from './useSlateSync';
 import { SettingsModal } from './views/SettingsModal';
 import { TodoView } from './views/TodoView';
+
+const THEME_COLOR = { light: '#f2f3ed', dark: '#101311' } as const;
+
+const SYNC_PRESENTATION: Record<SyncStatus, { label: string; icon: LucideIcon }> = {
+  synced: { label: 'Synced', icon: Cloud },
+  syncing: { label: 'Syncing', icon: LoaderCircle },
+  offline: { label: 'Offline', icon: CloudOff },
+  'signed-out': { label: 'Sign in', icon: LogIn },
+  'action-needed': { label: 'Action needed', icon: CircleAlert },
+};
 
 function SlateLogo() {
   return (
@@ -50,7 +65,7 @@ export default function App() {
     document.documentElement.dataset.theme = resolvedTheme;
     document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute(
       'content',
-      resolvedTheme === 'dark' ? '#101722' : '#f6f7f9',
+      THEME_COLOR[resolvedTheme],
     );
   }, [resolvedTheme, Boolean(store.state)]);
 
@@ -64,6 +79,8 @@ export default function App() {
   }
 
   const state = store.state;
+  const syncPresentation = SYNC_PRESENTATION[sync.status];
+  const SyncIcon = syncPresentation.icon;
 
   function toggleTheme() {
     store.updateSettings({ theme: resolvedTheme === 'dark' ? 'light' : 'dark' });
@@ -91,10 +108,23 @@ export default function App() {
       <header className="app-header">
         <span className="brand-link">
           <SlateLogo />
-          <span><strong>Slate</strong><small>Simple lists</small></span>
+          <span>
+            <strong>Slate</strong>
+            <small>harsh.bet / slate</small>
+          </span>
         </span>
 
         <div className="header-tools">
+          <button
+            type="button"
+            className={`sync-status sync-status-${sync.status}`}
+            title={sync.message ?? `${syncPresentation.label}. Open settings.`}
+            aria-label={`${syncPresentation.label}. Open settings.`}
+            onClick={() => setSettingsOpen(true)}
+          >
+            <SyncIcon aria-hidden="true" className={sync.status === 'syncing' ? 'spin' : undefined} />
+            <span>{syncPresentation.label}</span>
+          </button>
           <button
             type="button"
             className="theme-toggle"

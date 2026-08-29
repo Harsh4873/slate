@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f6f7f9" />
+    <meta name="theme-color" content="#f2f3ed" />
     <meta name="color-scheme" content="light dark" />
     <meta name="apple-mobile-web-app-title" content="Slate" />
-    <meta name="description" content="Slate is a private, local-first phone to-do list with simple sections, due dates, and quick add." />
+    <meta name="description" content="Slate is a private, local-first to-do list with sections, due dates, and quick add." />
     <meta property="og:title" content="Slate — To-Do" />
     <meta property="og:description" content="One quiet list. Clear it." />
     <meta property="og:type" content="website" />
@@ -22,8 +22,8 @@
       // localStorage mirror even when IndexedDB is available, so this makes
       // explicit Light/Dark choices feel immediate; System follows the OS.
       (() => {
-        const light = '#f6f7f9';
-        const dark = '#101722';
+        const light = '#f2f3ed';
+        const dark = '#101311';
         const systemTheme = () => (
           matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
         );

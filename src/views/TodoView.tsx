@@ -53,6 +53,12 @@ const FILTER_LABELS: Record<TaskFilter, string> = {
   today: 'Today',
 };
 
+const NEXT_PRIORITY: Record<TaskPriority, TaskPriority | undefined> = {
+  high: 'medium',
+  medium: 'low',
+  low: undefined,
+};
+
 interface UndoAction {
   label: string;
   undo?: () => void;
@@ -112,14 +118,20 @@ function InlineText({ value, onCommit, placeholder, ariaLabel, className }: {
   );
 }
 
-function QuickAdd({ onSubmit, onCancel }: {
+function QuickAdd({ sections, onSubmit, onCancel }: {
+  sections: Section[];
   onSubmit: (raw: string) => void;
   onCancel: () => void;
 }) {
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const parsed = useMemo(() => parseQuickAdd(draft), [draft]);
   const hasText = draft.trim().length > 0;
+  const targetSection = parsed.sectionQuery ? matchSection(sections, parsed.sectionQuery) : sections[0];
+  const targetLabel = parsed.sectionQuery && !targetSection
+    ? `new section “${capitalizeSectionTitle(parsed.sectionQuery)}”`
+    : targetSection?.title || DEFAULT_SECTION_TITLE;
 
   function submit() {
     if (!hasText) return;
@@ -137,7 +149,7 @@ function QuickAdd({ onSubmit, onCancel }: {
           type="text"
           value={draft}
           placeholder="Add a task…"
-          aria-label="Add a task"
+          aria-label="Add a task. Tokens: @ due date, ! priority, # section."
           maxLength={400}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
@@ -157,6 +169,21 @@ function QuickAdd({ onSubmit, onCancel }: {
           </button>
         )}
       </div>
+      {hasText ? (
+        <div className="quick-add-preview" aria-live="polite">
+          <span className="quick-add-chip quick-add-chip-section">{targetLabel}</span>
+          {parsed.due && <span className="quick-add-chip">{formatDueKey(parsed.due)}</span>}
+          {parsed.priority && (
+            <span className={`quick-add-chip quick-add-chip-${parsed.priority}`}>
+              <Flag aria-hidden="true" /> {PRIORITY_LABELS[parsed.priority]}
+            </span>
+          )}
+        </div>
+      ) : (
+        <p className="quick-add-hint">
+          <kbd>@tomorrow</kbd> due · <kbd>!high</kbd> priority · <kbd>#inbox</kbd> file it
+        </p>
+      )}
     </div>
   );
 }
@@ -473,6 +500,10 @@ export function TodoView({
     pushUndo({ label: `Cleared ${cleared.length} completed ${cleared.length === 1 ? 'task' : 'tasks'}`, undo: () => restoreTasks(cleared) });
   }
 
+  function cyclePriority(task: Task) {
+    updateTask(task.id, { priority: task.priority ? NEXT_PRIORITY[task.priority] : 'high' });
+  }
+
   function submitQuickAdd(raw: string) {
     const parsed = parseQuickAdd(raw);
     if (!parsed.title.trim()) return;
@@ -514,6 +545,19 @@ export function TodoView({
             />
             {task.notes.trim() && <span className="task-note" title={task.notes}>{task.notes}</span>}
           </div>
+          <button
+            type="button"
+            className={`priority-flag${task.priority ? ` priority-${task.priority}` : ''}`}
+            title={task.priority ? `Priority: ${PRIORITY_LABELS[task.priority]} — tap to change` : 'Set priority'}
+            aria-label={
+              task.priority
+                ? `Priority ${PRIORITY_LABELS[task.priority]} for ${task.title || 'untitled task'}. Tap to change.`
+                : `Set priority for ${task.title || 'untitled task'}`
+            }
+            onClick={() => cyclePriority(task)}
+          >
+            <Flag aria-hidden="true" />
+          </button>
           {task.due && (
             <span className={`due-chip${!task.done && isOverdueKey(task.due) ? ' due-chip-overdue' : ''}`}>
               {formatDueKey(task.due)}
@@ -618,7 +662,11 @@ export function TodoView({
         </div>
       </header>
 
-      <QuickAdd onSubmit={submitQuickAdd} onCancel={() => showNotice('Task entry cleared')} />
+      <QuickAdd
+        sections={sections}
+        onSubmit={submitQuickAdd}
+        onCancel={() => showNotice('Task entry cleared')}
+      />
 
       <div className="todo-toolbar">
         <div className="filter-chips" role="group" aria-label="Filter tasks">
