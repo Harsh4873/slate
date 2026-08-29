@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f6f8fb" />
-    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#f6f7f9" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="apple-mobile-web-app-title" content="Slate" />
     <meta name="description" content="Slate is a private, local-first phone to-do list with simple sections, due dates, and quick add." />
     <meta property="og:title" content="Slate — To-Do" />
@@ -17,6 +17,31 @@
     <link rel="icon" type="image/svg+xml" href="/slate/favicon.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="/slate/apple-touch-icon.png" />
     <title>Slate — To-Do</title>
+    <script>
+      // Resolve the saved preference before the first paint. The app keeps a
+      // localStorage mirror even when IndexedDB is available, so this makes
+      // explicit Light/Dark choices feel immediate; System follows the OS.
+      (() => {
+        const light = '#f6f7f9';
+        const dark = '#101722';
+        const systemTheme = () => (
+          matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        );
+        let theme = systemTheme();
+        try {
+          const stored = JSON.parse(localStorage.getItem('slate-todo-state-v1') || 'null');
+          const saved = (stored && stored.state ? stored.state : stored)?.settings?.theme;
+          if (saved === 'light' || saved === 'dark') theme = saved;
+        } catch {
+          // Storage can be blocked or stale. The operating system is safe.
+        }
+        document.documentElement.dataset.theme = theme;
+        document.querySelector('meta[name="theme-color"]')?.setAttribute(
+          'content',
+          theme === 'dark' ? dark : light,
+        );
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

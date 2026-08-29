@@ -1,8 +1,10 @@
 import {
   LoaderCircle,
+  Moon,
   Settings2,
   ShieldCheck,
   SquareCheckBig,
+  Sun,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSlateStore } from './store';
@@ -25,14 +27,32 @@ export default function App() {
   // Old bookmarks may still point at the retired #profile view; honour them
   // by opening the settings dialog they were looking for.
   const [settingsOpen, setSettingsOpen] = useState(() => ['#profile', '#settings'].includes(window.location.hash));
+  const [systemTheme, setSystemTheme] = useState<'dark' | 'light'>(() => (
+    window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  ));
+  const themePreference = store.state?.settings.theme;
+  const resolvedTheme = themePreference === 'dark' || themePreference === 'light'
+    ? themePreference
+    : systemTheme;
 
   useEffect(() => {
-    // Slate is intentionally a single, low-contrast light surface on phones.
-    // This keeps the interface predictable even if an older backup stored a
-    // dark-theme preference.
-    document.documentElement.dataset.theme = 'light';
-    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', '#f6f8fb');
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const updateSystemTheme = () => setSystemTheme(media.matches ? 'dark' : 'light');
+    media.addEventListener('change', updateSystemTheme);
+    return () => media.removeEventListener('change', updateSystemTheme);
   }, []);
+
+  useEffect(() => {
+    // index.html applies the stored preference before paint. Wait for Slate's
+    // async storage hydration before reconciling it, so IndexedDB-backed
+    // preferences never briefly fall back to the operating-system theme.
+    if (!store.state) return;
+    document.documentElement.dataset.theme = resolvedTheme;
+    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute(
+      'content',
+      resolvedTheme === 'dark' ? '#101722' : '#f6f7f9',
+    );
+  }, [resolvedTheme, Boolean(store.state)]);
 
   if (!store.state) {
     return (
@@ -44,6 +64,11 @@ export default function App() {
   }
 
   const state = store.state;
+
+  function toggleTheme() {
+    store.updateSettings({ theme: resolvedTheme === 'dark' ? 'light' : 'dark' });
+  }
+
   return (
     <div className="app-shell">
       {sync.signingOut && (
@@ -70,7 +95,16 @@ export default function App() {
         </span>
 
         <div className="header-tools">
-          <button type="button" className="theme-toggle" onClick={() => setSettingsOpen(true)} aria-label="Open settings">
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${resolvedTheme === 'dark' ? 'light' : 'dark'} theme`}
+            title={`Switch to ${resolvedTheme === 'dark' ? 'light' : 'dark'} theme`}
+          >
+            {resolvedTheme === 'dark' ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
+          </button>
+          <button type="button" className="theme-toggle" onClick={() => setSettingsOpen(true)} aria-label="Open settings" title="Open settings">
             <Settings2 aria-hidden="true" />
           </button>
         </div>
@@ -108,6 +142,7 @@ export default function App() {
         <SettingsModal
           state={state}
           storageMode={store.storageMode}
+          updateSettings={store.updateSettings}
           replaceState={store.replaceState}
           resetState={store.resetState}
           sync={sync}

@@ -504,13 +504,16 @@ export function TodoView({
           >
             <Check aria-hidden="true" />
           </button>
-          <InlineText
-            value={task.title}
-            onCommit={(title) => updateTask(task.id, { title })}
-            placeholder="Untitled task"
-            ariaLabel={`Task title: ${task.title || 'untitled'}`}
-            className="task-title"
-          />
+          <div className="task-copy">
+            <InlineText
+              value={task.title}
+              onCommit={(title) => updateTask(task.id, { title })}
+              placeholder="Untitled task"
+              ariaLabel={`Task title: ${task.title || 'untitled'}`}
+              className="task-title"
+            />
+            {task.notes.trim() && <span className="task-note" title={task.notes}>{task.notes}</span>}
+          </div>
           {task.due && (
             <span className={`due-chip${!task.done && isOverdueKey(task.due) ? ' due-chip-overdue' : ''}`}>
               {formatDueKey(task.due)}
