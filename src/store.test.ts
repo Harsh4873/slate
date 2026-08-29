@@ -73,7 +73,7 @@ describe('parseSlateState', () => {
         startMin: 480,
         durationMin: 60,
         title: 'Old schedule block',
-        color: '#8d7cff',
+        color: '#5579ad',
         createdAt: NOW,
         updatedAt: NOW,
       },

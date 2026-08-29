@@ -4,16 +4,13 @@ import {
   LoaderCircle,
   LogIn,
   LogOut,
-  Monitor,
-  Moon,
   RotateCcw,
-  Sun,
   Upload,
   UserRound,
 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toDateKey } from '../dates';
-import type { SlateState, ThemePreference } from '../model';
+import type { SlateState } from '../model';
 import { parseSlateState, type SlateStore, type StorageMode } from '../store';
 import { Modal } from '../ui';
 import type { SlateSync, SyncStatus } from '../useSlateSync';
@@ -26,12 +23,6 @@ const SYNC_LABELS: Record<SyncStatus, string> = {
   'action-needed': 'Action needed',
 };
 
-const THEME_OPTIONS: Array<{ id: ThemePreference; label: string; icon: typeof Sun }> = [
-  { id: 'dark', label: 'Dark', icon: Moon },
-  { id: 'light', label: 'Light', icon: Sun },
-  { id: 'system', label: 'System', icon: Monitor },
-];
-
 function formatSyncTime(timestamp?: string) {
   if (!timestamp) return 'waiting for first sync';
   const parsed = Date.parse(timestamp);
@@ -42,14 +33,13 @@ function formatSyncTime(timestamp?: string) {
 interface SettingsModalProps {
   state: SlateState;
   storageMode: StorageMode;
-  updateSettings: SlateStore['updateSettings'];
   replaceState: SlateStore['replaceState'];
   resetState: SlateStore['resetState'];
   sync: SlateSync;
   onClose: () => void;
 }
 
-export function SettingsModal({ state, storageMode, updateSettings, replaceState, resetState, sync, onClose }: SettingsModalProps) {
+export function SettingsModal({ state, storageMode, replaceState, resetState, sync, onClose }: SettingsModalProps) {
   const [authAction, setAuthAction] = useState<'sign-in' | 'sign-out' | null>(null);
   const [importError, setImportError] = useState<string>();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -159,27 +149,6 @@ export function SettingsModal({ state, storageMode, updateSettings, replaceState
               </button>
             </>
           )}
-        </section>
-
-        <section className="settings-group">
-          <div className="settings-group-heading">
-            <h3>Theme</h3>
-          </div>
-          <div className="theme-options" role="radiogroup" aria-label="Theme">
-            {THEME_OPTIONS.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                type="button"
-                role="radio"
-                aria-checked={state.settings.theme === id}
-                className={`theme-option${state.settings.theme === id ? ' selected' : ''}`}
-                onClick={() => updateSettings({ theme: id })}
-              >
-                <Icon aria-hidden="true" />
-                <span>{label}</span>
-              </button>
-            ))}
-          </div>
         </section>
 
         <section className="settings-group">

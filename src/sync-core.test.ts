@@ -18,7 +18,7 @@ function makeSection(overrides: Partial<Section> = {}): Section {
   return {
     id: 'section-1',
     title: 'Inbox',
-    color: '#b8f35b',
+    color: '#5579ad',
     order: 1000,
     collapsed: false,
     createdAt: '2026-07-01T10:00:00.000Z',

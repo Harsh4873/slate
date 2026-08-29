@@ -1,29 +1,20 @@
 import {
   ArrowDown,
   ArrowUp,
-  CalendarCheck,
-  CalendarClock,
-  CalendarOff,
   Check,
   ChevronRight,
   Eraser,
-  Eye,
-  EyeOff,
   Flag,
-  FolderInput,
   FolderPlus,
-  GripVertical,
   ListTodo,
   MoreHorizontal,
-  NotebookPen,
   Plus,
-  Search,
   Trash2,
   Undo2,
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { addDays, formatDueKey, formatFullDate, isOverdueKey, toDateKey } from '../dates';
+import { formatDueKey, formatFullDate, isOverdueKey, toDateKey } from '../dates';
 import {
   DEFAULT_SECTION_TITLE,
   PRIORITY_LABELS,
@@ -51,58 +42,20 @@ interface TodoViewProps {
   addTaskToNewSection: SlateStore['addTaskToNewSection'];
   updateTask: SlateStore['updateTask'];
   toggleTask: SlateStore['toggleTask'];
-  moveTask: SlateStore['moveTask'];
   deleteTask: SlateStore['deleteTask'];
   restoreTasks: SlateStore['restoreTasks'];
-  updateSettings: SlateStore['updateSettings'];
 }
 
-type TaskFilter = 'all' | 'today' | 'upcoming';
+type TaskFilter = 'all' | 'today';
 
 const FILTER_LABELS: Record<TaskFilter, string> = {
   all: 'All',
   today: 'Today',
-  upcoming: 'Upcoming',
 };
-
-interface DropTarget {
-  sectionId: string;
-  beforeTaskId: string | null;
-}
 
 interface UndoAction {
   label: string;
-  undo: () => void;
-}
-
-const NEXT_PRIORITY: Record<TaskPriority, TaskPriority | undefined> = {
-  high: 'medium',
-  medium: 'low',
-  low: undefined,
-};
-
-// Horizontal swipe on a task row (touch/pen only — mouse users have the move
-// button and drag-and-drop). Right sets the task due today; left opens the
-// move menu. Vertical intent cancels so list scrolling stays native.
-const SWIPE_INTENT_PX = 12;
-const SWIPE_COMMIT_PX = 64;
-const SWIPE_MAX_PX = 96;
-
-interface SwipeState {
-  taskId: string;
-  pointerId: number;
-  startX: number;
-  startY: number;
-  row: HTMLElement;
-  content: HTMLElement;
-  axis: 'undecided' | 'horizontal' | 'cancelled';
-  dx: number;
-}
-
-interface MoveMenuState {
-  taskId: string;
-  top: number;
-  right: number;
+  undo?: () => void;
 }
 
 function InlineText({ value, onCommit, placeholder, ariaLabel, className }: {
@@ -159,19 +112,14 @@ function InlineText({ value, onCommit, placeholder, ariaLabel, className }: {
   );
 }
 
-function QuickAdd({ sections, onSubmit }: {
-  sections: Section[];
+function QuickAdd({ onSubmit, onCancel }: {
   onSubmit: (raw: string) => void;
+  onCancel: () => void;
 }) {
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const parsed = useMemo(() => parseQuickAdd(draft), [draft]);
   const hasText = draft.trim().length > 0;
-  const targetSection = parsed.sectionQuery ? matchSection(sections, parsed.sectionQuery) : sections[0];
-  const targetLabel = parsed.sectionQuery && !targetSection
-    ? `new section “${capitalizeSectionTitle(parsed.sectionQuery)}”`
-    : targetSection?.title || DEFAULT_SECTION_TITLE;
 
   function submit() {
     if (!hasText) return;
@@ -189,7 +137,7 @@ function QuickAdd({ sections, onSubmit }: {
           type="text"
           value={draft}
           placeholder="Add a task…"
-          aria-label="Add a task. Tokens: @ due date, ! priority, # section."
+          aria-label="Add a task"
           maxLength={400}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
@@ -197,7 +145,10 @@ function QuickAdd({ sections, onSubmit }: {
               event.preventDefault();
               submit();
             }
-            if (event.key === 'Escape') setDraft('');
+            if (event.key === 'Escape' && hasText) {
+              setDraft('');
+              onCancel();
+            }
           }}
         />
         {hasText && (
@@ -206,21 +157,6 @@ function QuickAdd({ sections, onSubmit }: {
           </button>
         )}
       </div>
-      {hasText ? (
-        <div className="quick-add-preview" aria-live="polite">
-          <span className="quick-add-chip quick-add-chip-section">{targetLabel}</span>
-          {parsed.due && <span className="quick-add-chip">{formatDueKey(parsed.due)}</span>}
-          {parsed.priority && (
-            <span className={`quick-add-chip quick-add-chip-${parsed.priority}`}>
-              <Flag aria-hidden="true" /> {PRIORITY_LABELS[parsed.priority]}
-            </span>
-          )}
-        </div>
-      ) : (
-        <p className="quick-add-hint">
-          <kbd>@tomorrow</kbd> due · <kbd>!high</kbd> priority · <kbd>#section</kbd> file it
-        </p>
-      )}
     </div>
   );
 }
@@ -293,21 +229,38 @@ function SectionMenu({ section, isFirst, isLast, hasCompleted, moveSection, setS
   );
 }
 
-function TaskDetailsModal({ task, sections, onClose, updateTask, toggleTask, onDelete, moveStep, canMoveUp, canMoveDown }: {
+function TaskDetailsModal({ task, sections, onClose, onCancel, updateTask, toggleTask, onDelete }: {
   task: Task;
   sections: Section[];
   onClose: () => void;
+  onCancel: () => void;
   updateTask: SlateStore['updateTask'];
   toggleTask: SlateStore['toggleTask'];
   onDelete: () => void;
-  moveStep: (direction: -1 | 1) => void;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
 }) {
+  const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes);
+  const [due, setDue] = useState(task.due ?? '');
+  const [sectionId, setSectionId] = useState(task.sectionId);
+  const [priority, setPriority] = useState<TaskPriority | undefined>(task.priority);
+  const [done, setDone] = useState(task.done);
 
-  function commitNotes() {
-    if (notes !== task.notes) updateTask(task.id, { notes });
+  function cancel() {
+    onCancel();
+    onClose();
+  }
+
+  function save() {
+    const nextTitle = title.trim() || task.title;
+    const patch: Partial<Pick<Task, 'title' | 'notes' | 'due' | 'priority' | 'sectionId'>> = {};
+    if (nextTitle !== task.title) patch.title = nextTitle;
+    if (notes !== task.notes) patch.notes = notes;
+    if (due !== (task.due ?? '')) patch.due = due || undefined;
+    if (sectionId !== task.sectionId) patch.sectionId = sectionId;
+    if (priority !== task.priority) patch.priority = priority;
+    if (Object.keys(patch).length) updateTask(task.id, patch);
+    if (done !== task.done) toggleTask(task.id);
+    onClose();
   }
 
   const priorityChoices: Array<{ value: TaskPriority | undefined; label: string }> = [
@@ -320,10 +273,7 @@ function TaskDetailsModal({ task, sections, onClose, updateTask, toggleTask, onD
   return (
     <Modal
       title="Task details"
-      onClose={() => {
-        commitNotes();
-        onClose();
-      }}
+      onClose={cancel}
       footer={(
         <div className="modal-actions">
           <button
@@ -337,28 +287,25 @@ function TaskDetailsModal({ task, sections, onClose, updateTask, toggleTask, onD
             <Trash2 aria-hidden="true" /> Delete task
           </button>
           <span className="modal-actions-spacer" />
-          <button type="button" className="button button-primary" onClick={() => { commitNotes(); onClose(); }}>Done</button>
+          <button type="button" className="button button-secondary" onClick={cancel}>Cancel</button>
+          <button type="button" className="button button-primary" onClick={save}>Save</button>
         </div>
       )}
     >
       <div className="task-details">
-        <label className={`task-details-check${task.done ? ' is-done' : ''}`}>
-          <input type="checkbox" checked={task.done} onChange={() => toggleTask(task.id)} />
-          <span>{task.done ? 'Completed' : 'Mark complete'}</span>
+        <label className={`task-details-check${done ? ' is-done' : ''}`}>
+          <input type="checkbox" checked={done} onChange={() => setDone((current) => !current)} />
+          <span>{done ? 'Completed' : 'Mark complete'}</span>
         </label>
 
         <label className="field">
           <span className="field-label">Title</span>
           <input
             type="text"
-            defaultValue={task.title}
+            value={title}
             aria-label="Task title"
             maxLength={200}
-            onBlur={(event) => {
-              const trimmed = event.target.value.trim();
-              if (trimmed && trimmed !== task.title) updateTask(task.id, { title: trimmed });
-              else if (!trimmed) event.target.value = task.title;
-            }}
+            onChange={(event) => setTitle(event.target.value)}
           />
         </label>
 
@@ -367,15 +314,15 @@ function TaskDetailsModal({ task, sections, onClose, updateTask, toggleTask, onD
             <span className="field-label">Due date</span>
             <input
               type="date"
-              value={task.due ?? ''}
-              onChange={(event) => updateTask(task.id, { due: event.target.value || undefined })}
+              value={due}
+              onChange={(event) => setDue(event.target.value)}
             />
           </label>
           <label className="field">
             <span className="field-label">Section</span>
             <select
-              value={task.sectionId}
-              onChange={(event) => updateTask(task.id, { sectionId: event.target.value })}
+              value={sectionId}
+              onChange={(event) => setSectionId(event.target.value)}
             >
               {sections.map((section) => (
                 <option key={section.id} value={section.id}>{section.title || 'Untitled section'}</option>
@@ -392,26 +339,14 @@ function TaskDetailsModal({ task, sections, onClose, updateTask, toggleTask, onD
                 key={label}
                 type="button"
                 role="radio"
-                aria-checked={task.priority === value}
-                className={`priority-option${task.priority === value ? ' selected' : ''}${value ? ` priority-${value}` : ''}`}
-                onClick={() => updateTask(task.id, { priority: value })}
+                aria-checked={priority === value}
+                className={`priority-option${priority === value ? ' selected' : ''}${value ? ` priority-${value}` : ''}`}
+                onClick={() => setPriority(value)}
               >
                 {value && <Flag aria-hidden="true" />}
                 {label}
               </button>
             ))}
-          </div>
-        </div>
-
-        <div className="field">
-          <span className="field-label" id="task-position-label">Position in section</span>
-          <div className="task-move-row" role="group" aria-labelledby="task-position-label">
-            <button type="button" className="button button-secondary" onClick={() => moveStep(-1)} disabled={!canMoveUp}>
-              <ArrowUp aria-hidden="true" /> Move up
-            </button>
-            <button type="button" className="button button-secondary" onClick={() => moveStep(1)} disabled={!canMoveDown}>
-              <ArrowDown aria-hidden="true" /> Move down
-            </button>
           </div>
         </div>
 
@@ -422,7 +357,6 @@ function TaskDetailsModal({ task, sections, onClose, updateTask, toggleTask, onD
             value={notes}
             placeholder="Links, subtasks, context…"
             onChange={(event) => setNotes(event.target.value)}
-            onBlur={commitNotes}
           />
         </label>
       </div>
@@ -444,27 +378,15 @@ export function TodoView({
   addTaskToNewSection,
   updateTask,
   toggleTask,
-  moveTask,
   deleteTask,
   restoreTasks,
-  updateSettings,
 }: TodoViewProps) {
   const [filter, setFilter] = useState<TaskFilter>('all');
-  const [query, setQuery] = useState('');
   const [detailsTaskId, setDetailsTaskId] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
-  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
-  // Rows are only draggable while the grip is pressed, so text selection and
-  // caret placement inside the inline inputs keep working.
-  const [armedTaskId, setArmedTaskId] = useState<string | null>(null);
   const [undo, setUndo] = useState<UndoAction | null>(null);
-  const [moveMenu, setMoveMenu] = useState<MoveMenuState | null>(null);
   const undoTimerRef = useRef<number>();
-  const searchRef = useRef<HTMLInputElement>(null);
-  const swipeRef = useRef<SwipeState | null>(null);
 
-  const trimmedQuery = query.trim().toLowerCase();
-  const filterActive = filter !== 'all' || trimmedQuery.length > 0;
+  const filterActive = filter !== 'all';
   const todayKey = toDateKey(new Date());
 
   const sections = useMemo(() => sortByOrder(state.sections.filter((section) => !section.deleted)), [state.sections]);
@@ -479,7 +401,6 @@ export function TodoView({
     return grouped;
   }, [sections, state.tasks]);
 
-  const hideCompleted = state.settings.hideCompleted;
   const liveTasks = useMemo(() => state.tasks.filter((task) => !task.deleted), [state.tasks]);
   const openCount = liveTasks.reduce((count, task) => count + (task.done ? 0 : 1), 0);
   const doneCount = liveTasks.length - openCount;
@@ -488,26 +409,18 @@ export function TodoView({
     return {
       all: open.length,
       today: open.filter((task) => task.due && task.due <= todayKey).length,
-      upcoming: open.filter((task) => task.due && task.due > todayKey).length,
     };
   }, [liveTasks, todayKey]);
 
   const matchesView = useMemo(() => {
     return (task: Task) => {
       if (filter === 'today' && !(task.due && task.due <= todayKey)) return false;
-      if (filter === 'upcoming' && !(task.due && task.due > todayKey)) return false;
-      if (trimmedQuery
-        && !task.title.toLowerCase().includes(trimmedQuery)
-        && !task.notes.toLowerCase().includes(trimmedQuery)) return false;
       return true;
     };
-  }, [filter, todayKey, trimmedQuery]);
+  }, [filter, todayKey]);
 
   const detailsTask = detailsTaskId
     ? state.tasks.find((task) => task.id === detailsTaskId && !task.deleted) ?? null
-    : null;
-  const moveMenuTask = moveMenu
-    ? state.tasks.find((task) => task.id === moveMenu.taskId && !task.deleted) ?? null
     : null;
   // A concurrent delete-section on another device can strand live tasks whose
   // section is now a tombstone; surface them instead of hiding them forever.
@@ -516,49 +429,7 @@ export function TodoView({
     return sortByOrder(state.tasks.filter((task) => !task.deleted && !liveSectionIds.has(task.sectionId)));
   }, [sections, state.tasks]);
 
-  const detailsSiblings = detailsTask
-    ? (tasksBySection.get(detailsTask.sectionId) ?? [])
-    : [];
-  const detailsIndex = detailsTask
-    ? detailsSiblings.findIndex((task) => task.id === detailsTask.id)
-    : -1;
-
   useEffect(() => () => window.clearTimeout(undoTimerRef.current), []);
-
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
-      const target = event.target as HTMLElement | null;
-      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
-      event.preventDefault();
-      searchRef.current?.focus();
-    }
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
-
-  useEffect(() => {
-    if (!moveMenu) return;
-    function onPointerDown(event: PointerEvent) {
-      if (!(event.target as HTMLElement | null)?.closest('.move-menu')) setMoveMenu(null);
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setMoveMenu(null);
-    }
-    function onDismiss() {
-      setMoveMenu(null);
-    }
-    document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    window.addEventListener('scroll', onDismiss, true);
-    window.addEventListener('resize', onDismiss);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('scroll', onDismiss, true);
-      window.removeEventListener('resize', onDismiss);
-    };
-  }, [moveMenu]);
 
   function pushUndo(action: UndoAction) {
     window.clearTimeout(undoTimerRef.current);
@@ -572,9 +443,13 @@ export function TodoView({
   }
 
   function applyUndo() {
-    if (!undo) return;
+    if (!undo?.undo) return;
     undo.undo();
     dismissUndo();
+  }
+
+  function showNotice(label: string) {
+    pushUndo({ label });
   }
 
   function handleDeleteTask(task: Task) {
@@ -598,111 +473,6 @@ export function TodoView({
     pushUndo({ label: `Cleared ${cleared.length} completed ${cleared.length === 1 ? 'task' : 'tasks'}`, undo: () => restoreTasks(cleared) });
   }
 
-  function setTaskDue(task: Task, due: string | undefined, label: string) {
-    setMoveMenu(null);
-    if (task.due === due) return;
-    const previousDue = task.due;
-    updateTask(task.id, { due });
-    pushUndo({ label, undo: () => updateTask(task.id, { due: previousDue }) });
-  }
-
-  function moveTaskToSection(task: Task, section: Section) {
-    setMoveMenu(null);
-    if (task.sectionId === section.id) return;
-    const previousSectionId = task.sectionId;
-    moveTask(task.id, section.id, null);
-    pushUndo({
-      label: `Moved to “${section.title || 'Untitled section'}”`,
-      // updateTask (not moveTask) so undo also works for recovered tasks
-      // whose original section is a tombstone.
-      undo: () => updateTask(task.id, { sectionId: previousSectionId }),
-    });
-  }
-
-  function openMoveMenu(task: Task, anchor: HTMLElement) {
-    const rect = anchor.getBoundingClientRect();
-    setMoveMenu({
-      taskId: task.id,
-      top: rect.bottom + 6,
-      right: Math.max(8, window.innerWidth - rect.right),
-    });
-  }
-
-  function resetSwipeVisuals(swipe: SwipeState) {
-    swipe.content.style.transform = '';
-    swipe.row.classList.remove('is-swiping', 'swipe-right', 'swipe-left', 'swipe-armed');
-  }
-
-  function beginSwipe(event: React.PointerEvent<HTMLLIElement>, task: Task) {
-    if (event.pointerType === 'mouse' || !event.isPrimary || moveMenu) return;
-    const target = event.target as HTMLElement;
-    if (target.closest('button, a, select, textarea')) return;
-    const row = event.currentTarget;
-    const content = row.querySelector<HTMLElement>('.task-row-content');
-    if (!content) return;
-    swipeRef.current = {
-      taskId: task.id,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      row,
-      content,
-      axis: 'undecided',
-      dx: 0,
-    };
-  }
-
-  function moveSwipe(event: React.PointerEvent<HTMLLIElement>) {
-    const swipe = swipeRef.current;
-    if (!swipe || event.pointerId !== swipe.pointerId || swipe.axis === 'cancelled') return;
-    const dx = event.clientX - swipe.startX;
-    const dy = event.clientY - swipe.startY;
-    if (swipe.axis === 'undecided') {
-      if (Math.abs(dy) > SWIPE_INTENT_PX && Math.abs(dy) > Math.abs(dx)) {
-        swipe.axis = 'cancelled';
-        return;
-      }
-      if (Math.abs(dx) > SWIPE_INTENT_PX && Math.abs(dx) > Math.abs(dy)) {
-        swipe.axis = 'horizontal';
-        try {
-          swipe.row.setPointerCapture(event.pointerId);
-        } catch {
-          // Synthetic pointers (tests) have no capturable id; tracking works anyway.
-        }
-        swipe.row.classList.add('is-swiping');
-      } else {
-        return;
-      }
-    }
-    const clamped = Math.max(-SWIPE_MAX_PX, Math.min(SWIPE_MAX_PX, dx));
-    swipe.dx = clamped;
-    swipe.content.style.transform = `translateX(${clamped}px)`;
-    swipe.row.classList.toggle('swipe-right', clamped > 0);
-    swipe.row.classList.toggle('swipe-left', clamped < 0);
-    swipe.row.classList.toggle('swipe-armed', Math.abs(clamped) >= SWIPE_COMMIT_PX);
-  }
-
-  function endSwipe(event: React.PointerEvent<HTMLLIElement>, task: Task | null) {
-    const swipe = swipeRef.current;
-    if (!swipe || event.pointerId !== swipe.pointerId) return;
-    const committed = task && swipe.axis === 'horizontal' && Math.abs(swipe.dx) >= SWIPE_COMMIT_PX
-      ? swipe.dx > 0 ? 'today' : 'move'
-      : null;
-    resetSwipeVisuals(swipe);
-    swipeRef.current = null;
-    if (!task || !committed) return;
-    if (committed === 'today') setTaskDue(task, todayKey, 'Due set to today');
-    else openMoveMenu(task, swipe.row);
-  }
-
-  function cancelSwipe(event: React.PointerEvent<HTMLLIElement>) {
-    endSwipe(event, null);
-  }
-
-  function cyclePriority(task: Task) {
-    updateTask(task.id, { priority: task.priority ? NEXT_PRIORITY[task.priority] : 'high' });
-  }
-
   function submitQuickAdd(raw: string) {
     const parsed = parseQuickAdd(raw);
     if (!parsed.title.trim()) return;
@@ -717,77 +487,13 @@ export function TodoView({
     else addTaskToNewSection(DEFAULT_SECTION_TITLE, parsed.title, extras);
   }
 
-  function moveTaskStep(task: Task, direction: -1 | 1) {
-    const siblings = tasksBySection.get(task.sectionId) ?? [];
-    const index = siblings.findIndex((item) => item.id === task.id);
-    const targetIndex = index + direction;
-    if (index < 0 || targetIndex < 0 || targetIndex >= siblings.length) return;
-    const beforeTaskId = direction === -1
-      ? siblings[targetIndex].id
-      : siblings[targetIndex + 1]?.id ?? null;
-    moveTask(task.id, task.sectionId, beforeTaskId);
-  }
-
-  function endDrag() {
-    setDraggingTaskId(null);
-    setDropTarget(null);
-    setArmedTaskId(null);
-  }
-
-  function onDropAt(target: DropTarget) {
-    if (draggingTaskId) moveTask(draggingTaskId, target.sectionId, target.beforeTaskId);
-    endDrag();
-  }
-
-  function taskRow(task: Task, section: Section | null, visible: Task[]) {
-    const draggable = section !== null && !filterActive;
-    const isDropBefore = draggable && dropTarget?.sectionId === section.id && dropTarget.beforeTaskId === task.id;
+  function taskRow(task: Task) {
     return (
       <li
         key={task.id}
-        className={`task-row${task.done ? ' is-done' : ''}${draggingTaskId === task.id ? ' is-dragging' : ''}${isDropBefore ? ' drop-before' : ''}`}
-        draggable={draggable && armedTaskId === task.id}
-        onDragStart={(event) => {
-          if (!draggable) return;
-          event.dataTransfer.effectAllowed = 'move';
-          event.dataTransfer.setData('text/plain', task.id);
-          setDraggingTaskId(task.id);
-        }}
-        onDragEnd={endDrag}
-        onDragOver={(event) => {
-          if (!draggable || !draggingTaskId || draggingTaskId === task.id) return;
-          event.preventDefault();
-          event.dataTransfer.dropEffect = 'move';
-          const rect = event.currentTarget.getBoundingClientRect();
-          const before = event.clientY < rect.top + rect.height / 2;
-          // Resolve neighbours against the VISIBLE sequence (open before done,
-          // completed possibly hidden) so the indicator matches the drop.
-          const index = visible.findIndex((item) => item.id === task.id);
-          const beforeTaskId = before ? task.id : visible[index + 1]?.id ?? null;
-          setDropTarget({ sectionId: section.id, beforeTaskId });
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          if (dropTarget) onDropAt(dropTarget);
-        }}
-        onPointerDown={(event) => beginSwipe(event, task)}
-        onPointerMove={moveSwipe}
-        onPointerUp={(event) => endSwipe(event, task)}
-        onPointerCancel={cancelSwipe}
+        className={`task-row${task.done ? ' is-done' : ''}`}
       >
-        <span className="swipe-band swipe-band-today" aria-hidden="true"><CalendarCheck /> Today</span>
-        <span className="swipe-band swipe-band-move" aria-hidden="true"><FolderInput /> Move</span>
         <div className="task-row-content">
-          {draggable && (
-            <span
-              className="task-grip"
-              aria-hidden="true"
-              onPointerDown={() => setArmedTaskId(task.id)}
-              onPointerUp={() => { if (!draggingTaskId) setArmedTaskId(null); }}
-            >
-              <GripVertical />
-            </span>
-          )}
           <button
             type="button"
             className="task-checkbox"
@@ -805,69 +511,25 @@ export function TodoView({
             ariaLabel={`Task title: ${task.title || 'untitled'}`}
             className="task-title"
           />
-          {task.priority && (
-            <button
-              type="button"
-              className={`priority-flag priority-${task.priority}`}
-              title={`Priority: ${PRIORITY_LABELS[task.priority]} — click to change`}
-              aria-label={`Priority ${PRIORITY_LABELS[task.priority]} for ${task.title || 'untitled task'}. Click to change.`}
-              onClick={() => cyclePriority(task)}
-            >
-              <Flag aria-hidden="true" />
-            </button>
-          )}
           {task.due && (
             <span className={`due-chip${!task.done && isOverdueKey(task.due) ? ' due-chip-overdue' : ''}`}>
               {formatDueKey(task.due)}
             </span>
           )}
-          {task.notes && <span className="task-note-flag" title="Has notes" aria-label="Has notes"><NotebookPen aria-hidden="true" /></span>}
-          <span className="task-actions">
-            {!task.priority && (
-              <button
-                type="button"
-                className="icon-button icon-button-quiet"
-                aria-label={`Set priority for ${task.title || 'untitled task'}`}
-                title="Set priority"
-                onClick={() => cyclePriority(task)}
-              >
-                <Flag aria-hidden="true" />
-              </button>
-            )}
-            <button
-              type="button"
-              className="icon-button icon-button-quiet"
-              aria-label={`Move or schedule ${task.title || 'untitled task'}`}
-              title="Move / schedule"
-              onClick={(event) => openMoveMenu(task, event.currentTarget)}
-            >
-              <FolderInput aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className="icon-button icon-button-quiet"
-              aria-label={`Open details for ${task.title || 'untitled task'}`}
-              title="Details"
-              onClick={() => setDetailsTaskId(task.id)}
-            >
-              <NotebookPen aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className="icon-button icon-button-quiet"
-              aria-label={`Delete ${task.title || 'untitled task'}`}
-              title="Delete"
-              onClick={() => handleDeleteTask(task)}
-            >
-              <Trash2 aria-hidden="true" />
-            </button>
-          </span>
+          <button
+            type="button"
+            className="task-details-button"
+            aria-label={`Open details for ${task.title || 'untitled task'}`}
+            onClick={() => setDetailsTaskId(task.id)}
+          >
+            <ChevronRight aria-hidden="true" />
+          </button>
         </div>
       </li>
     );
   }
 
-  const visibleOrphans = orphanTasks.filter(matchesView).filter((task) => !(hideCompleted && task.done));
+  const visibleOrphans = orphanTasks.filter(matchesView);
   let anyVisible = visibleOrphans.length > 0;
 
   const sectionCards = sections.map((section, sectionIndex) => {
@@ -875,10 +537,9 @@ export function TodoView({
     const matching = tasks.filter(matchesView);
     const openTasks = matching.filter((task) => !task.done);
     const doneTasks = matching.filter((task) => task.done);
-    const visibleTasks = hideCompleted ? openTasks : [...openTasks, ...doneTasks];
+    const visibleTasks = [...openTasks, ...doneTasks];
     if (filterActive && visibleTasks.length === 0) return null;
     anyVisible = anyVisible || visibleTasks.length > 0 || !filterActive;
-    const isEndDropTarget = dropTarget?.sectionId === section.id && dropTarget.beforeTaskId === null;
     const showBody = filterActive || !section.collapsed;
 
     return (
@@ -918,31 +579,19 @@ export function TodoView({
         </header>
 
         {showBody && (
-          <div
-            className={`todo-section-body${isEndDropTarget ? ' drop-end' : ''}`}
-            onDragOver={(event) => {
-              if (!draggingTaskId) return;
-              if ((event.target as HTMLElement).closest('.task-row')) return;
-              event.preventDefault();
-              event.dataTransfer.dropEffect = 'move';
-              setDropTarget({ sectionId: section.id, beforeTaskId: null });
-            }}
-            onDrop={(event) => {
-              event.preventDefault();
-              if (dropTarget) onDropAt(dropTarget);
-            }}
-          >
+          <div className="todo-section-body">
             {visibleTasks.length > 0 && (
               <ul className="task-list">
-                {visibleTasks.map((task) => taskRow(task, section, visibleTasks))}
+                {visibleTasks.map(taskRow)}
               </ul>
-            )}
-            {visibleTasks.length === 0 && matching.length > 0 && hideCompleted && (
-              <p className="todo-section-note">All {matching.length} tasks here are completed and hidden.</p>
             )}
             {!filterActive && (
               <div className="add-task-row">
-                <AddTaskInput onAdd={(title) => addTask(section.id, title)} sectionTitle={section.title} />
+                <AddTaskInput
+                  onAdd={(title) => addTask(section.id, title)}
+                  onCancel={() => showNotice('Task entry cleared')}
+                  sectionTitle={section.title}
+                />
               </div>
             )}
           </div>
@@ -966,7 +615,7 @@ export function TodoView({
         </div>
       </header>
 
-      <QuickAdd sections={sections} onSubmit={submitQuickAdd} />
+      <QuickAdd onSubmit={submitQuickAdd} onCancel={() => showNotice('Task entry cleared')} />
 
       <div className="todo-toolbar">
         <div className="filter-chips" role="group" aria-label="Filter tasks">
@@ -984,38 +633,6 @@ export function TodoView({
           ))}
         </div>
         <div className="toolbar-tools">
-          <div className="search-box">
-            <Search aria-hidden="true" />
-            <input
-              ref={searchRef}
-              type="search"
-              value={query}
-              placeholder="Search"
-              aria-label="Search tasks (shortcut: /)"
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  setQuery('');
-                  event.currentTarget.blur();
-                }
-              }}
-            />
-            {query && (
-              <button type="button" className="search-clear" aria-label="Clear search" onClick={() => setQuery('')}>
-                <X aria-hidden="true" />
-              </button>
-            )}
-          </div>
-          <button
-            type="button"
-            className="icon-button"
-            title={hideCompleted ? 'Show completed' : 'Hide completed'}
-            aria-label={hideCompleted ? 'Show completed tasks' : 'Hide completed tasks'}
-            aria-pressed={hideCompleted}
-            onClick={() => updateSettings({ hideCompleted: !hideCompleted })}
-          >
-            {hideCompleted ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
-          </button>
           <button
             type="button"
             className="icon-button"
@@ -1034,7 +651,7 @@ export function TodoView({
         <div className="panel todo-empty-panel">
           <ListTodo aria-hidden="true" />
           <h3>A clean slate</h3>
-          <p>No tasks yet. Type in the bar above to add your first one — it lands in “{DEFAULT_SECTION_TITLE}” unless you name a section with #. Sections keep classes, projects, and errands apart.</p>
+          <p>Add one task above to get started.</p>
         </div>
       )}
 
@@ -1054,7 +671,7 @@ export function TodoView({
                 Reassign them from task details, or delete them.
               </p>
               <ul className="task-list">
-                {visibleOrphans.map((task) => taskRow(task, null, visibleOrphans))}
+                {visibleOrphans.map(taskRow)}
               </ul>
             </div>
           </section>
@@ -1063,12 +680,12 @@ export function TodoView({
         {filterActive && !anyVisible && sections.length > 0 && (
           <div className="panel">
             <EmptyState
-              icon={<Search />}
-              title="No matching tasks"
-              copy={trimmedQuery ? `Nothing ${filter === 'all' ? '' : `in ${FILTER_LABELS[filter]} `}matches “${query.trim()}”.` : `Nothing is ${filter === 'today' ? 'due today or overdue' : 'due later'}. Add a due date with @today or @tomorrow.`}
+              icon={<ListTodo />}
+              title="Nothing due today"
+              copy="Open a task to set a due date, or add a new task when you are ready."
               action={(
-                <button type="button" className="button button-secondary" onClick={() => { setFilter('all'); setQuery(''); }}>
-                  Clear filters
+                <button type="button" className="button button-secondary" onClick={() => setFilter('all')}>
+                  Show all tasks
                 </button>
               )}
             />
@@ -1081,76 +698,21 @@ export function TodoView({
           task={detailsTask}
           sections={sections}
           onClose={() => setDetailsTaskId(null)}
+          onCancel={() => showNotice('No changes were saved')}
           updateTask={updateTask}
           toggleTask={toggleTask}
           onDelete={() => handleDeleteTask(detailsTask)}
-          moveStep={(direction) => moveTaskStep(detailsTask, direction)}
-          canMoveUp={detailsIndex > 0}
-          canMoveDown={detailsIndex >= 0 && detailsIndex < detailsSiblings.length - 1}
         />
-      )}
-
-      {moveMenu && moveMenuTask && (
-        <div
-          className="move-menu"
-          role="menu"
-          aria-label={`Move or schedule ${moveMenuTask.title || 'untitled task'}`}
-          style={{ top: moveMenu.top, right: moveMenu.right }}
-        >
-          <button
-            type="button"
-            role="menuitem"
-            className="move-menu-item"
-            disabled={moveMenuTask.due === todayKey}
-            onClick={() => setTaskDue(moveMenuTask, todayKey, 'Due set to today')}
-          >
-            <CalendarCheck aria-hidden="true" /> Due today
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="move-menu-item"
-            disabled={moveMenuTask.due === toDateKey(addDays(new Date(), 1))}
-            onClick={() => setTaskDue(moveMenuTask, toDateKey(addDays(new Date(), 1)), 'Due set to tomorrow')}
-          >
-            <CalendarClock aria-hidden="true" /> Due tomorrow
-          </button>
-          {moveMenuTask.due && (
-            <button
-              type="button"
-              role="menuitem"
-              className="move-menu-item"
-              onClick={() => setTaskDue(moveMenuTask, undefined, 'Due date removed')}
-            >
-              <CalendarOff aria-hidden="true" /> Clear due date
-            </button>
-          )}
-          <div className="move-menu-separator" role="separator" />
-          <span className="move-menu-label">Move to</span>
-          {sections.filter((section) => section.id !== moveMenuTask.sectionId).map((section) => (
-            <button
-              key={section.id}
-              type="button"
-              role="menuitem"
-              className="move-menu-item"
-              style={accentStyle(section.color)}
-              onClick={() => moveTaskToSection(moveMenuTask, section)}
-            >
-              <span className="section-dot" aria-hidden="true" /> {section.title || 'Untitled section'}
-            </button>
-          ))}
-          {sections.filter((section) => section.id !== moveMenuTask.sectionId).length === 0 && (
-            <span className="move-menu-empty">No other sections yet</span>
-          )}
-        </div>
       )}
 
       {undo && (
         <div className="undo-toast" role="status">
           <span>{undo.label}</span>
-          <button type="button" className="undo-toast-action" onClick={applyUndo}>
-            <Undo2 aria-hidden="true" /> Undo
-          </button>
+          {undo.undo && (
+            <button type="button" className="undo-toast-action" onClick={applyUndo}>
+              <Undo2 aria-hidden="true" /> Undo
+            </button>
+          )}
           <button type="button" className="icon-button icon-button-quiet" aria-label="Dismiss" onClick={dismissUndo}>
             <X aria-hidden="true" />
           </button>
@@ -1160,7 +722,11 @@ export function TodoView({
   );
 }
 
-function AddTaskInput({ onAdd, sectionTitle }: { onAdd: (title: string) => void; sectionTitle: string }) {
+function AddTaskInput({ onAdd, onCancel, sectionTitle }: {
+  onAdd: (title: string) => void;
+  onCancel: () => void;
+  sectionTitle: string;
+}) {
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const cancelledRef = useRef(false);
@@ -1194,6 +760,7 @@ function AddTaskInput({ onAdd, sectionTitle }: { onAdd: (title: string) => void;
             commit(true);
           }
           if (event.key === 'Escape') {
+            if (draft.trim()) onCancel();
             cancelledRef.current = true;
             setDraft('');
             inputRef.current?.blur();

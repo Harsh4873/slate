@@ -1,29 +1,14 @@
 import {
-  CircleAlert,
-  Cloud,
-  CloudOff,
   LoaderCircle,
-  LogIn,
-  Moon,
   Settings2,
   ShieldCheck,
   SquareCheckBig,
-  Sun,
-  type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSlateStore } from './store';
-import { useSlateSync, type SyncStatus } from './useSlateSync';
+import { useSlateSync } from './useSlateSync';
 import { SettingsModal } from './views/SettingsModal';
 import { TodoView } from './views/TodoView';
-
-const SYNC_PRESENTATION: Record<SyncStatus, { label: string; icon: LucideIcon }> = {
-  synced: { label: 'Synced', icon: Cloud },
-  syncing: { label: 'Syncing', icon: LoaderCircle },
-  offline: { label: 'Offline', icon: CloudOff },
-  'signed-out': { label: 'Sign in', icon: LogIn },
-  'action-needed': { label: 'Action needed', icon: CircleAlert },
-};
 
 function SlateLogo() {
   return (
@@ -40,23 +25,14 @@ export default function App() {
   // Old bookmarks may still point at the retired #profile view; honour them
   // by opening the settings dialog they were looking for.
   const [settingsOpen, setSettingsOpen] = useState(() => ['#profile', '#settings'].includes(window.location.hash));
-  const [systemTheme, setSystemTheme] = useState<'dark' | 'light'>(() => (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
-  const themePreference = store.state?.settings.theme;
-  // Only an explicit 'light'/'dark' choice overrides the operating system;
-  // 'system' and "not loaded yet" both follow the media query.
-  const resolvedTheme = themePreference === 'light' || themePreference === 'dark' ? themePreference : systemTheme;
 
   useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: light)');
-    const updateSystemTheme = () => setSystemTheme(media.matches ? 'light' : 'dark');
-    media.addEventListener('change', updateSystemTheme);
-    return () => media.removeEventListener('change', updateSystemTheme);
+    // Slate is intentionally a single, low-contrast light surface on phones.
+    // This keeps the interface predictable even if an older backup stored a
+    // dark-theme preference.
+    document.documentElement.dataset.theme = 'light';
+    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', '#f6f8fb');
   }, []);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = resolvedTheme;
-    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', resolvedTheme === 'light' ? '#f2f3ed' : '#101311');
-  }, [resolvedTheme]);
 
   if (!store.state) {
     return (
@@ -68,13 +44,6 @@ export default function App() {
   }
 
   const state = store.state;
-  const syncPresentation = SYNC_PRESENTATION[sync.status];
-  const SyncIcon = syncPresentation.icon;
-
-  function toggleTheme() {
-    store.updateSettings({ theme: resolvedTheme === 'dark' ? 'light' : 'dark' });
-  }
-
   return (
     <div className="app-shell">
       {sync.signingOut && (
@@ -97,23 +66,10 @@ export default function App() {
       <header className="app-header">
         <span className="brand-link">
           <SlateLogo />
-          <span><strong>Slate</strong><small>harsh.bet / slate</small></span>
+          <span><strong>Slate</strong><small>Simple lists</small></span>
         </span>
 
         <div className="header-tools">
-          <button
-            type="button"
-            className={`sync-status sync-status-${sync.status}`}
-            title={sync.message ?? `${syncPresentation.label}. Open settings.`}
-            aria-label={`${syncPresentation.label}. Open settings.`}
-            onClick={() => setSettingsOpen(true)}
-          >
-            <SyncIcon aria-hidden="true" className={sync.status === 'syncing' ? 'spin' : undefined} />
-            <span>{syncPresentation.label}</span>
-          </button>
-          <button type="button" className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${resolvedTheme === 'dark' ? 'light' : 'dark'} theme`}>
-            {resolvedTheme === 'dark' ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
-          </button>
           <button type="button" className="theme-toggle" onClick={() => setSettingsOpen(true)} aria-label="Open settings">
             <Settings2 aria-hidden="true" />
           </button>
@@ -143,10 +99,8 @@ export default function App() {
           addTaskToNewSection={store.addTaskToNewSection}
           updateTask={store.updateTask}
           toggleTask={store.toggleTask}
-          moveTask={store.moveTask}
           deleteTask={store.deleteTask}
           restoreTasks={store.restoreTasks}
-          updateSettings={store.updateSettings}
         />
       </main>
 
@@ -154,7 +108,6 @@ export default function App() {
         <SettingsModal
           state={state}
           storageMode={store.storageMode}
-          updateSettings={store.updateSettings}
           replaceState={store.replaceState}
           resetState={store.resetState}
           sync={sync}

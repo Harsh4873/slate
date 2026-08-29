@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#101311" />
-    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#f6f8fb" />
+    <meta name="color-scheme" content="light" />
     <meta name="apple-mobile-web-app-title" content="Slate" />
-    <meta name="description" content="Slate is a private, local-first to-do list: sections, due dates, priorities, and quick add, with automatic phone and laptop sync." />
+    <meta name="description" content="Slate is a private, local-first phone to-do list with simple sections, due dates, and quick add." />
     <meta property="og:title" content="Slate — To-Do" />
     <meta property="og:description" content="One quiet list. Clear it." />
     <meta property="og:type" content="website" />
@@ -17,24 +17,6 @@
     <link rel="icon" type="image/svg+xml" href="/slate/favicon.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="/slate/apple-touch-icon.png" />
     <title>Slate — To-Do</title>
-    <script>
-      // Resolve the theme before first paint so an unset preference follows the
-      // operating system instead of flashing dark. Slate's own preference lives
-      // in its saved state; only an explicit 'light'/'dark' overrides the OS.
-      (() => {
-        const systemTheme = () => (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-        let theme = systemTheme();
-        try {
-          const stored = JSON.parse(localStorage.getItem('slate-todo-state-v1') || 'null');
-          const saved = (stored && stored.state ? stored.state : stored)?.settings?.theme;
-          if (saved === 'light' || saved === 'dark') theme = saved;
-        } catch {
-          // Unreadable or blocked storage: the operating system decides.
-        }
-        document.documentElement.dataset.theme = theme;
-        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#f2f3ed' : '#101311');
-      })();
-    </script>
   </head>
   <body>
     <div id="root"></div>
