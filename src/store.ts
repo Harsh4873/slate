@@ -13,7 +13,7 @@ import {
   type ThemePreference,
 } from './model';
 import { applyMoveTask } from './move-task';
-import { rebalanced, sortByOrder, ORDER_GAP } from './order';
+import { needsRebalance, orderBetween, rebalanced, sortByOrder, ORDER_GAP } from './order';
 import { mergeStates, stableStringify, timestampAfterState } from './sync-core';
 
 const DATABASE_NAME = 'slate-todo';
@@ -38,13 +38,14 @@ export type StorageMode = 'indexeddb' | 'localstorage';
 export interface TaskExtras {
   due?: string;
   priority?: TaskPriority;
+  afterTaskId?: string;
 }
 
 export interface SlateStore {
   state: SlateState | null;
   storageMode: StorageMode;
   storageWarning?: string;
-  addSection: (title: string) => void;
+  addSection: (title: string) => string | undefined;
   renameSection: (sectionId: string, title: string) => void;
   setSectionColor: (sectionId: string, color: string) => void;
   toggleSectionCollapsed: (sectionId: string) => void;
@@ -52,7 +53,7 @@ export interface SlateStore {
   deleteSection: (sectionId: string) => void;
   restoreSection: (sectionId: string, taskIds: string[]) => void;
   clearCompleted: (sectionId: string) => void;
-  addTask: (sectionId: string, title: string, extras?: TaskExtras) => void;
+  addTask: (sectionId: string, title: string, extras?: TaskExtras) => string | undefined;
   addTaskToNewSection: (sectionTitle: string, title: string, extras?: TaskExtras) => void;
   updateTask: (taskId: string, patch: Partial<Pick<Task, 'title' | 'notes' | 'due' | 'priority' | 'sectionId'>>) => void;
   toggleTask: (taskId: string) => void;
@@ -471,8 +472,8 @@ export function useSlateStore(): SlateStore {
   }, []);
 
   const addSection = useCallback((title: string) => {
-    const trimmed = title.trim();
-    if (!trimmed) return;
+    const trimmed = title.trim() || 'New Note';
+    let createdId: string | undefined;
     commit((previous) => {
       const now = timestampAfterState(previous);
       const live = previous.sections.filter((section) => !section.deleted);
@@ -486,8 +487,10 @@ export function useSlateStore(): SlateStore {
         createdAt: now,
         updatedAt: now,
       };
+      createdId = section.id;
       return { ...previous, sections: [...previous.sections, section] };
     }, (next, previous) => [changedSectionsMutation(next, previous)]);
+    return createdId;
   }, [commit, changedSectionsMutation]);
 
   const patchSection = useCallback((sectionId: string, patch: Partial<Section>) => {
@@ -624,8 +627,18 @@ export function useSlateStore(): SlateStore {
   }, [commit, changedTasksMutation]);
 
   const buildTask = useCallback((previous: SlateState, sectionId: string, title: string, extras: TaskExtras | undefined, now: string): Task => {
-    const siblings = previous.tasks.filter((task) => task.sectionId === sectionId && !task.deleted);
-    const lastOrder = siblings.length ? Math.max(...siblings.map((task) => task.order)) : 0;
+    const siblings = sortByOrder(previous.tasks.filter((task) => task.sectionId === sectionId && !task.deleted));
+    let order = (siblings.length ? siblings[siblings.length - 1].order : 0) + ORDER_GAP;
+    if (extras?.afterTaskId) {
+      const afterIndex = siblings.findIndex((task) => task.id === extras.afterTaskId);
+      if (afterIndex >= 0) {
+        const previousOrder = siblings[afterIndex].order;
+        const nextOrder = afterIndex < siblings.length - 1 ? siblings[afterIndex + 1].order : undefined;
+        if (!needsRebalance(previousOrder, nextOrder)) {
+          order = orderBetween(previousOrder, nextOrder);
+        }
+      }
+    }
     return {
       id: makeId('task'),
       sectionId,
@@ -634,22 +647,23 @@ export function useSlateStore(): SlateStore {
       done: false,
       ...(extras?.due && isDateKey(extras.due) ? { due: extras.due } : {}),
       ...(extras?.priority ? { priority: extras.priority } : {}),
-      order: lastOrder + ORDER_GAP,
+      order,
       createdAt: now,
       updatedAt: now,
     };
   }, []);
 
   const addTask = useCallback((sectionId: string, title: string, extras?: TaskExtras) => {
-    const trimmed = title.trim();
-    if (!trimmed) return;
+    let createdId: string | undefined;
     commit((previous) => {
       const section = previous.sections.find((item) => item.id === sectionId && !item.deleted);
       if (!section) return previous;
       const now = timestampAfterState(previous);
-      const task = buildTask(previous, sectionId, trimmed, extras, now);
+      const task = buildTask(previous, sectionId, title.trim(), extras, now);
+      createdId = task.id;
       return { ...previous, tasks: [...previous.tasks, task] };
     }, (next, previous) => [changedTasksMutation(next, previous)]);
+    return createdId;
   }, [commit, buildTask, changedTasksMutation]);
 
   // Quick add into a section that does not exist yet: one commit creates the
@@ -688,7 +702,7 @@ export function useSlateStore(): SlateStore {
         const nextTask: Task = { ...task, ...patch, updatedAt: now };
         if (patch.due === undefined && 'due' in patch) delete nextTask.due;
         if (patch.priority === undefined && 'priority' in patch) delete nextTask.priority;
-        if (patch.title !== undefined && !patch.title.trim()) nextTask.title = task.title;
+        if (patch.title !== undefined) nextTask.title = patch.title;
         if (patch.sectionId && patch.sectionId !== task.sectionId) {
           const siblings = previous.tasks.filter((item) => item.sectionId === patch.sectionId && !item.deleted);
           nextTask.order = (siblings.length ? Math.max(...siblings.map((item) => item.order)) : 0) + ORDER_GAP;

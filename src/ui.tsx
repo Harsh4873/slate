@@ -1,49 +1,5 @@
 import { X } from 'lucide-react';
-import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
-import { SLATE_COLORS, SLATE_COLOR_NAMES } from './model';
-
-export function accentStyle(color: string) {
-  return { '--accent-color': color } as CSSProperties;
-}
-
-export function EmptyState({ icon, title, copy, action }: {
-  icon: ReactNode;
-  title: string;
-  copy: string;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="empty-state">
-      <div className="empty-state-icon" aria-hidden="true">{icon}</div>
-      <h3>{title}</h3>
-      <p>{copy}</p>
-      {action}
-    </div>
-  );
-}
-
-export function ColorPicker({ value, onChange, idPrefix }: {
-  value: string;
-  onChange: (color: string) => void;
-  idPrefix: string;
-}) {
-  return (
-    <div className="color-picker" role="radiogroup" aria-label="Color">
-      {SLATE_COLORS.map((color) => (
-        <button
-          key={`${idPrefix}-${color}`}
-          type="button"
-          role="radio"
-          aria-checked={value === color}
-          aria-label={SLATE_COLOR_NAMES[color] ?? `Color ${color}`}
-          className={`color-swatch${value === color ? ' selected' : ''}`}
-          style={accentStyle(color)}
-          onClick={() => onChange(color)}
-        />
-      ))}
-    </div>
-  );
-}
+import { useEffect, useRef, type ReactNode } from 'react';
 
 export function Modal({ title, onClose, children, footer }: {
   title: string;
@@ -52,15 +8,12 @@ export function Modal({ title, onClose, children, footer }: {
   footer?: ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
-  // Escape/backdrop handlers must see the latest onClose (it captures live
-  // state like unsaved notes), not the first render's closure.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const panel = panelRef.current;
-    // Land on the first field of the body, not the header's Close button.
     const focusable = panel?.querySelector<HTMLElement>(
       '.modal-body input, .modal-body textarea, .modal-body select, .modal-body button',
     ) ?? panel?.querySelector<HTMLElement>('input, textarea, select, button');

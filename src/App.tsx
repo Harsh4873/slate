@@ -1,24 +1,24 @@
-import {
-  LoaderCircle,
-  Moon,
-  Settings2,
-  ShieldCheck,
-  Sun,
-} from 'lucide-react';
+import { LoaderCircle, ShieldCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSlateStore } from './store';
 import { useSlateSync } from './useSlateSync';
+import { NoteEditor } from './views/NoteEditor';
+import { NotesList } from './views/NotesList';
 import { SettingsModal } from './views/SettingsModal';
-import { TodoView } from './views/TodoView';
 
 const THEME_COLOR = { light: '#f2f2f7', dark: '#000000' } as const;
+
+function readHash(): { noteId: string | null; settings: boolean } {
+  const hash = window.location.hash.replace(/^#/, '');
+  if (hash === 'settings' || hash === 'profile') return { noteId: null, settings: true };
+  if (hash.startsWith('note/')) return { noteId: hash.slice(5) || null, settings: false };
+  return { noteId: null, settings: false };
+}
 
 export default function App() {
   const store = useSlateStore();
   const sync = useSlateSync(store);
-  // Old bookmarks may still point at the retired #profile view; honour them
-  // by opening the settings dialog they were looking for.
-  const [settingsOpen, setSettingsOpen] = useState(() => ['#profile', '#settings'].includes(window.location.hash));
+  const [route, setRoute] = useState(readHash);
   const [systemTheme, setSystemTheme] = useState<'dark' | 'light'>(() => (
     window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   ));
@@ -35,9 +35,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // index.html applies the stored preference before paint. Wait for Slate's
-    // async storage hydration before reconciling it, so IndexedDB-backed
-    // preferences never briefly fall back to the operating-system theme.
+    const onHash = () => setRoute(readHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  useEffect(() => {
     if (!store.state) return;
     document.documentElement.dataset.theme = resolvedTheme;
     document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute(
@@ -46,18 +49,30 @@ export default function App() {
     );
   }, [resolvedTheme, Boolean(store.state)]);
 
+  function openNote(id: string) {
+    window.location.hash = `note/${id}`;
+  }
+
+  function openList() {
+    window.location.hash = '';
+  }
+
   if (!store.state) {
     return (
       <div className="loading-screen" role="status">
-        <span>Slate</span>
+        <span>Notes</span>
       </div>
     );
   }
 
   const state = store.state;
+  const activeNote = route.noteId
+    ? state.sections.find((section) => section.id === route.noteId && !section.deleted) ?? null
+    : null;
 
-  function toggleTheme() {
-    store.updateSettings({ theme: resolvedTheme === 'dark' ? 'light' : 'dark' });
+  function compose() {
+    const id = store.addSection('New Note');
+    if (id) openNote(id);
   }
 
   return (
@@ -76,57 +91,49 @@ export default function App() {
           document.getElementById('main-content')?.focus();
         }}
       >
-        Skip to tasks
+        Skip to notes
       </a>
-
-      <header className="app-header">
-        <span className="brand-link">Slate</span>
-        <div className="header-tools">
-          <button
-            type="button"
-            className="icon-button"
-            onClick={toggleTheme}
-            aria-label={`Switch to ${resolvedTheme === 'dark' ? 'light' : 'dark'} theme`}
-            title={`Switch to ${resolvedTheme === 'dark' ? 'light' : 'dark'} theme`}
-          >
-            {resolvedTheme === 'dark' ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
-          </button>
-          <button type="button" className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Open settings" title="Open settings">
-            <Settings2 aria-hidden="true" />
-          </button>
-        </div>
-      </header>
 
       {store.storageWarning && (
         <div className="storage-warning" role="alert">
           <ShieldCheck aria-hidden="true" />
           <span>{store.storageWarning}</span>
-          <button type="button" onClick={() => setSettingsOpen(true)}>Open data tools</button>
+          <button type="button" onClick={() => { window.location.hash = 'settings'; }}>Open settings</button>
         </div>
       )}
 
       <main id="main-content" tabIndex={-1}>
-        <TodoView
-          state={state}
-          addSection={store.addSection}
-          renameSection={store.renameSection}
-          setSectionColor={store.setSectionColor}
-          toggleSectionCollapsed={store.toggleSectionCollapsed}
-          moveSection={store.moveSection}
-          deleteSection={store.deleteSection}
-          restoreSection={store.restoreSection}
-          clearCompleted={store.clearCompleted}
-          addTask={store.addTask}
-          addTaskToNewSection={store.addTaskToNewSection}
-          updateTask={store.updateTask}
-          toggleTask={store.toggleTask}
-          moveTask={store.moveTask}
-          deleteTask={store.deleteTask}
-          restoreTasks={store.restoreTasks}
-        />
+        {activeNote ? (
+          <NoteEditor
+            section={activeNote}
+            tasks={state.tasks}
+            hideCompleted={state.settings.hideCompleted}
+            renameSection={store.renameSection}
+            addTask={store.addTask}
+            updateTask={store.updateTask}
+            toggleTask={store.toggleTask}
+            moveTask={store.moveTask}
+            deleteTask={store.deleteTask}
+            restoreTasks={store.restoreTasks}
+            deleteSection={store.deleteSection}
+            restoreSection={store.restoreSection}
+            clearCompleted={store.clearCompleted}
+            onBack={openList}
+          />
+        ) : (
+          <>
+            <NotesList
+              sections={state.sections}
+              tasks={state.tasks}
+              onOpen={openNote}
+              onCompose={compose}
+              onSettings={() => { window.location.hash = 'settings'; }}
+            />
+          </>
+        )}
       </main>
 
-      {settingsOpen && (
+      {route.settings && (
         <SettingsModal
           state={state}
           storageMode={store.storageMode}
@@ -134,7 +141,9 @@ export default function App() {
           replaceState={store.replaceState}
           resetState={store.resetState}
           sync={sync}
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => {
+            window.location.hash = activeNote ? `note/${activeNote.id}` : '';
+          }}
         />
       )}
     </div>
