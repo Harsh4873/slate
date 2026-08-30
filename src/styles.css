@@ -129,19 +129,33 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
   flex-direction: column;
 }
 
-.notes-nav,
+.notes-nav {
+  display: flex;
+  min-height: 12px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 8px 6px 0;
+}
+
+.notes-title-block {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 8px 10px 16px;
+}
+.notes-title-block h1 {
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 1.05;
+}
+
 .note-nav {
   display: flex;
   min-height: 52px;
   align-items: center;
   justify-content: space-between;
   padding: 4px 6px 0;
-}
-
-.notes-nav-side {
-  display: flex;
-  min-width: 44px;
-  align-items: center;
 }
 
 .notes-back {
@@ -155,14 +169,6 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
   font-weight: 400;
 }
 .notes-back svg { width: 28px; height: 28px; }
-
-.notes-title-block { padding: 0 16px 10px; }
-.notes-title-block h1 {
-  font-size: 34px;
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  line-height: 1.1;
-}
 
 .notes-search {
   display: flex;
@@ -212,6 +218,7 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
   color: var(--text);
   font-size: 16px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -271,14 +278,14 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
 
 .note-title {
   width: 100%;
-  padding: 4px 16px 10px;
+  padding: 2px 16px 14px;
   border: 0;
   outline: 0;
   background: transparent;
-  font-size: 28px;
+  font-size: 34px;
   font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.2;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
 }
 .note-title::placeholder { color: var(--text-faint); font-weight: 700; }
 
@@ -290,11 +297,14 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
   position: relative;
   display: flex;
   gap: 10px;
-  min-height: 36px;
+  min-height: 44px;
   align-items: flex-start;
-  padding: 6px 8px 6px 6px;
+  padding: 8px 8px 8px 4px;
 }
-.check-row.is-dragging { opacity: 0.35; }
+.check-row.is-dragging {
+  opacity: 0.35;
+  pointer-events: none;
+}
 .check-row.drop-before::before {
   position: absolute;
   top: 0;
@@ -312,18 +322,18 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
 
 .check-circle {
   display: grid;
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-  margin-top: 1px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  margin-top: -4px;
   place-items: center;
   color: transparent;
   touch-action: none;
 }
 .check-circle::before {
-  width: 22px;
-  height: 22px;
-  border: 1.6px solid var(--check-border);
+  width: 24px;
+  height: 24px;
+  border: 1.7px solid var(--check-border);
   border-radius: 50%;
   background: transparent;
   content: '';
@@ -336,23 +346,23 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
 .check-circle svg {
   position: relative;
   z-index: 1;
-  width: 12px;
-  height: 12px;
-  stroke-width: 3;
+  width: 13px;
+  height: 13px;
+  stroke-width: 3.2;
 }
 
 .check-input {
   flex: 1;
   min-width: 0;
-  min-height: 32px;
-  padding: 4px 0;
+  min-height: 36px;
+  padding: 8px 0 6px;
   border: 0;
   outline: 0;
   background: transparent;
   font-size: 17px;
-  line-height: 1.4;
+  line-height: 1.45;
 }
-.check-input::placeholder { color: var(--text-faint); }
+.check-input::placeholder { color: transparent; }
 .check-row.is-done .check-input {
   color: var(--text-muted);
   text-decoration: line-through;

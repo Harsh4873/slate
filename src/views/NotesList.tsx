@@ -37,11 +37,9 @@ export function NotesList({ sections, tasks, onOpen, onCompose, onSettings }: {
       .filter((section) => !section.deleted)
       .map((section) => {
         const owned = sortByOrder(liveTasks.filter((task) => task.sectionId === section.id));
-        const preview = owned
-          .filter((task) => task.title.trim())
-          .slice(0, 3)
-          .map((task) => task.title.trim())
-          .join(', ');
+        const titled = owned.filter((task) => task.title.trim());
+        const previewSource = [...titled.filter((task) => !task.done), ...titled.filter((task) => task.done)];
+        const preview = previewSource.slice(0, 3).map((task) => task.title.trim()).join(', ');
         return {
           section,
           preview: preview || 'No additional text',
@@ -58,16 +56,11 @@ export function NotesList({ sections, tasks, onOpen, onCompose, onSettings }: {
 
   return (
     <section className="notes-list">
-      <header className="notes-nav">
-        <span className="notes-nav-side" />
-        <span className="notes-nav-side">
-          <button type="button" className="icon-button" aria-label="Settings" onClick={onSettings}>
-            <Ellipsis aria-hidden="true" />
-          </button>
-        </span>
-      </header>
       <div className="notes-title-block">
         <h1>Notes</h1>
+        <button type="button" className="icon-button" aria-label="Settings" onClick={onSettings}>
+          <Ellipsis aria-hidden="true" />
+        </button>
       </div>
       <label className="notes-search">
         <Search aria-hidden="true" />

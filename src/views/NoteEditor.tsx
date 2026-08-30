@@ -86,41 +86,51 @@ export function NoteEditor({
 
   finishDragRef.current = (apply: boolean) => {
     const taskId = dragTaskIdRef.current;
-    if (!taskId) return;
     const target = dropTargetRef.current;
     dragTaskIdRef.current = null;
     dropTargetRef.current = null;
+    pressRef.current = null;
     setDragTaskId(null);
     setDropTarget(null);
     document.body.classList.remove('is-dragging-task');
-    if (apply && target) moveTask(taskId, target.sectionId, target.beforeTaskId);
+    document.querySelectorAll('.check-row.is-dragging').forEach((node) => node.classList.remove('is-dragging'));
+    if (apply && taskId && target) moveTask(taskId, target.sectionId, target.beforeTaskId);
   };
 
-  useEffect(() => {
-    if (!dragTaskId) return;
-    const movingId = dragTaskId;
-    document.body.classList.add('is-dragging-task');
-    function onMove(event: PointerEvent) {
-      const next = resolveDropFromPoint(event.clientX, event.clientY, movingId);
+  function onCirclePointerDown(event: ReactPointerEvent<HTMLButtonElement>, taskId: string) {
+    if (event.button !== 0) return;
+    draggedRef.current = false;
+    const originX = event.clientX;
+    const originY = event.clientY;
+    pressRef.current = { x: originX, y: originY, taskId };
+    const row = event.currentTarget.closest('.check-row');
+
+    function onMove(pointer: PointerEvent) {
+      if (!pressRef.current) return;
+      if (!dragTaskIdRef.current) {
+        if (Math.hypot(pointer.clientX - originX, pointer.clientY - originY) < 6) return;
+        draggedRef.current = true;
+        dragTaskIdRef.current = taskId;
+        row?.classList.add('is-dragging');
+        document.body.classList.add('is-dragging-task');
+        setDragTaskId(taskId);
+      }
+      const next = resolveDropFromPoint(pointer.clientX, pointer.clientY, taskId);
       dropTargetRef.current = next;
       setDropTarget((current) => (sameDropTarget(current, next) ? current : next));
     }
+
     function onUp() {
-      finishDragRef.current(true);
-    }
-    function onCancel() {
-      finishDragRef.current(false);
-    }
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onCancel);
-    return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onCancel);
-      document.body.classList.remove('is-dragging-task');
-    };
-  }, [dragTaskId]);
+      window.removeEventListener('pointercancel', onUp);
+      finishDragRef.current(true);
+    }
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  }
 
   function pushUndo(label: string, undoAction?: () => void) {
     window.clearTimeout(undoTimerRef.current);
@@ -158,28 +168,6 @@ export function NoteEditor({
     const previous = live[index - 1];
     deleteTask(task.id);
     if (previous) setFocusId(previous.id);
-  }
-
-  function startDrag(taskId: string) {
-    draggedRef.current = true;
-    dragTaskIdRef.current = taskId;
-    dropTargetRef.current = null;
-    setDropTarget(null);
-    setDragTaskId(taskId);
-  }
-
-  function onCirclePointerDown(event: ReactPointerEvent<HTMLButtonElement>, taskId: string) {
-    if (event.button !== 0) return;
-    draggedRef.current = false;
-    pressRef.current = { x: event.clientX, y: event.clientY, taskId };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function onCirclePointerMove(event: ReactPointerEvent<HTMLButtonElement>) {
-    const press = pressRef.current;
-    if (!press || dragTaskIdRef.current) return;
-    const distance = Math.hypot(event.clientX - press.x, event.clientY - press.y);
-    if (distance > 8) startDrag(press.taskId);
   }
 
   function handleDeleteNote() {
@@ -283,15 +271,6 @@ export function NoteEditor({
                 aria-checked={task.done}
                 aria-label={task.done ? 'Mark as not completed' : 'Mark as completed'}
                 onPointerDown={(event) => onCirclePointerDown(event, task.id)}
-                onPointerMove={onCirclePointerMove}
-                onPointerUp={() => {
-                  pressRef.current = null;
-                  finishDragRef.current(true);
-                }}
-                onPointerCancel={() => {
-                  pressRef.current = null;
-                  finishDragRef.current(false);
-                }}
                 onClick={() => {
                   if (draggedRef.current) return;
                   handleToggle(task);
