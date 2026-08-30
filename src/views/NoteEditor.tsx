@@ -265,6 +265,9 @@ export function NoteEditor({
         className={`checklist${droppingAtEnd ? ' drop-end' : ''}`}
         data-drop-section={section.id}
       >
+        {visible.length === 0 && (
+          <li className="notes-empty" style={{ paddingTop: 12 }}>Tap the checklist button to start a list.</li>
+        )}
         {visible.map((task) => {
           const droppingBefore = dropTarget?.beforeTaskId === task.id;
           return (
