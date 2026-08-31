@@ -2,10 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="theme-color" content="#f2f2f7" />
     <meta name="color-scheme" content="light dark" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Slate" />
+    <link rel="manifest" href="/slate/manifest.webmanifest" />
     <meta name="description" content="Slate is a private, local-first Notes-style checklist." />
     <meta property="og:title" content="Slate" />
     <meta property="og:description" content="Checklists, like Notes." />
@@ -40,6 +44,11 @@
           'content',
           theme === 'dark' ? dark : light,
         );
+        const viewport = window.visualViewport;
+        const height = Math.round(viewport?.height ?? window.innerHeight);
+        const offsetTop = Math.round(viewport?.offsetTop ?? 0);
+        document.documentElement.style.setProperty('--app-height', `${height}px`);
+        document.documentElement.style.setProperty('--app-offset-top', `${offsetTop}px`);
       })();
     </script>
   </head>

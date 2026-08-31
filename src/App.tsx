@@ -2,6 +2,7 @@ import { LoaderCircle, ShieldCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSlateStore } from './store';
 import { useSlateSync } from './useSlateSync';
+import { useViewportLock } from './useViewportLock';
 import { NoteEditor } from './views/NoteEditor';
 import { NotesList } from './views/NotesList';
 import { SettingsModal } from './views/SettingsModal';
@@ -16,6 +17,7 @@ function readHash(): { noteId: string | null; settings: boolean } {
 }
 
 export default function App() {
+  useViewportLock();
   const store = useSlateStore();
   const sync = useSlateSync(store);
   const [route, setRoute] = useState(readHash);

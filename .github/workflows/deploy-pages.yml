@@ -68,6 +68,7 @@ jobs:
           test -f dist/favicon.svg
           test -f dist/apple-touch-icon.png
           test -f dist/social-card.svg
+          test -f dist/manifest.webmanifest
           test -d dist/assets
           find dist/assets -type f -name '*.js' -print -quit | grep -q .
           find dist/assets -type f -name '*.css' -print -quit | grep -q .
@@ -75,6 +76,8 @@ jobs:
           grep -Fq 'href="/slate/assets/' dist/index.html
           grep -Fq 'href="/slate/favicon.svg"' dist/index.html
           grep -Fq 'href="/slate/apple-touch-icon.png"' dist/index.html
+          grep -Fq 'href="/slate/manifest.webmanifest"' dist/index.html
+          grep -Fq 'viewport-fit=cover' dist/index.html
           grep -Fq 'href="https://harsh.bet/slate/"' dist/index.html
           test ! -e CNAME
           test ! -e dist/CNAME

@@ -226,8 +226,9 @@ export function NoteEditor({
         </div>
       </header>
 
-      <p className="note-stamp">{formatStamp(stamp)}</p>
-      <input
+      <div className="note-body">
+        <p className="note-stamp">{formatStamp(stamp)}</p>
+        <input
         ref={titleRef}
         className="note-title"
         value={title}
@@ -298,6 +299,7 @@ export function NoteEditor({
           );
         })}
       </ul>
+      </div>
 
       <footer className="note-toolbar">
         <button

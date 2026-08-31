@@ -49,17 +49,36 @@
   --shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
 }
 
+html {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 html, body {
-  min-height: 100%;
   margin: 0;
   background: var(--page);
   color: var(--text);
 }
 
 body {
-  min-height: 100dvh;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
   font-size: 17px;
   line-height: 1.35;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#root {
+  height: 100%;
+  overflow: hidden;
 }
 
 body.modal-open { overflow: hidden; }
@@ -84,11 +103,38 @@ ul { margin: 0; padding: 0; list-style: none; }
 svg { flex: 0 0 auto; width: 22px; height: 22px; }
 
 .app-shell {
+  position: fixed;
+  top: var(--app-offset-top, 0px);
+  left: 0;
+  z-index: 1;
+  display: flex;
   width: 100%;
-  max-width: var(--phone-width);
-  min-height: 100dvh;
-  margin: 0 auto;
+  height: var(--app-height, 100svh);
+  flex-direction: column;
+  overflow: hidden;
+  padding-right: env(safe-area-inset-right);
+  padding-left: env(safe-area-inset-left);
   background: var(--page);
+  transform: translateZ(0);
+}
+
+.app-shell > main {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@media (min-width: 540px) {
+  html { background: #d8d8de; }
+  html[data-theme='dark'] { background: #000; }
+  .app-shell {
+    left: 50%;
+    width: min(100%, var(--phone-width));
+    transform: translateX(-50%) translateZ(0);
+    box-shadow: var(--shadow);
+  }
 }
 
 .skip-link {
@@ -104,8 +150,10 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
 
 .loading-screen {
   display: grid;
-  min-height: 100dvh;
+  height: 100%;
+  min-height: var(--app-height, 100svh);
   place-items: center;
+  padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
   color: var(--text-muted);
   font-size: 22px;
   font-weight: 700;
@@ -124,24 +172,20 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
 
 .notes-list,
 .note-editor {
+  position: relative;
   display: flex;
-  min-height: 100dvh;
+  min-height: 0;
+  flex: 1;
   flex-direction: column;
-}
-
-.notes-nav {
-  display: flex;
-  min-height: 12px;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 8px 6px 0;
+  overflow: hidden;
 }
 
 .notes-title-block {
   display: flex;
+  flex-shrink: 0;
   align-items: flex-end;
   justify-content: space-between;
-  padding: 0 8px 10px 16px;
+  padding: calc(8px + env(safe-area-inset-top)) 8px 10px 16px;
 }
 .notes-title-block h1 {
   font-size: 34px;
@@ -152,10 +196,11 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
 
 .note-nav {
   display: flex;
+  flex-shrink: 0;
   min-height: 52px;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 6px 0;
+  padding: calc(4px + env(safe-area-inset-top)) 6px 0;
 }
 
 .notes-back {
@@ -172,6 +217,7 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
 
 .notes-search {
   display: flex;
+  flex-shrink: 0;
   gap: 8px;
   align-items: center;
   margin: 0 16px 12px;
@@ -193,7 +239,12 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
 
 .notes-groups {
   flex: 1;
-  padding: 0 16px 96px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 16px 16px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .notes-group {
@@ -243,9 +294,8 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
 
 .notes-toolbar,
 .note-toolbar {
-  position: sticky;
-  bottom: 0;
   display: flex;
+  flex-shrink: 0;
   min-height: 52px;
   align-items: center;
   justify-content: space-between;
@@ -268,6 +318,16 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
 .checklist-tool svg { width: 26px; height: 26px; }
 
 .note-editor { background: var(--note); }
+.note-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
 .note-stamp {
   padding: 2px 16px 6px;
   color: var(--text-muted);
@@ -290,7 +350,7 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
 .note-title::placeholder { color: var(--text-faint); font-weight: 700; }
 
 .checklist {
-  padding: 0 8px 96px 4px;
+  padding: 0 8px 24px 4px;
 }
 
 .check-row {
@@ -375,14 +435,14 @@ body.is-dragging-task {
 }
 
 .undo-toast {
-  position: fixed;
+  position: absolute;
   right: 12px;
-  bottom: max(12px, env(safe-area-inset-bottom));
+  bottom: calc(60px + env(safe-area-inset-bottom));
   left: 12px;
   z-index: 150;
   display: flex;
   gap: 8px;
-  max-width: var(--phone-width);
+  max-width: calc(var(--phone-width) - 24px);
   min-height: 52px;
   align-items: center;
   margin: 0 auto;
@@ -408,6 +468,7 @@ body.is-dragging-task {
 }
 .storage-warning {
   display: flex;
+  flex-shrink: 0;
   gap: 8px;
   align-items: center;
   margin: 8px 16px;
@@ -420,7 +481,7 @@ body.is-dragging-task {
 .storage-warning button { color: var(--accent); font-weight: 600; }
 
 .signout-scrim {
-  position: fixed;
+  position: absolute;
   inset: 0;
   display: grid;
   gap: 10px;
@@ -534,7 +595,7 @@ body.is-dragging-task {
 .note-menu-danger { color: var(--danger); }
 
 .modal-backdrop {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 140;
   display: grid;
@@ -544,7 +605,7 @@ body.is-dragging-task {
 .modal {
   display: flex;
   width: 100%;
-  max-height: min(88dvh, 740px);
+  max-height: min(88%, 740px);
   flex-direction: column;
   border-radius: 16px 16px 0 0;
   background: var(--note);
@@ -578,3 +639,8 @@ body.is-dragging-task {
 .empty-state h3 { color: var(--text); font-size: 22px; font-weight: 700; }
 .empty-state-icon { color: var(--accent); }
 .empty-state-icon svg { width: 36px; height: 36px; }
+
+@media (max-height: 500px) {
+  .notes-title-block h1,
+  .note-title { font-size: 28px; }
+}
