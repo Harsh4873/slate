@@ -20,9 +20,9 @@
   --check-mark: #ffffff;
   --danger: #ff3b30;
   --scrim: rgba(0, 0, 0, 0.32);
-  --toolbar: rgba(242, 242, 247, 0.88);
+  --toolbar: #e8e8ed;
+  --toolbar-border: rgba(60, 60, 67, 0.22);
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
-  --phone-width: 430px;
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Segoe UI", system-ui, sans-serif;
   font-family: var(--font);
   font-synthesis: none;
@@ -45,7 +45,8 @@
   --check-mark: #1c1c1e;
   --danger: #ff453a;
   --scrim: rgba(0, 0, 0, 0.55);
-  --toolbar: rgba(28, 28, 30, 0.9);
+  --toolbar: #1c1c1e;
+  --toolbar-border: rgba(84, 84, 88, 0.65);
   --shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
 }
 
@@ -105,11 +106,13 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
 .app-shell {
   position: fixed;
   top: var(--app-offset-top, 0px);
+  right: 0;
   left: 0;
   z-index: 1;
   display: flex;
-  width: 100%;
+  width: auto;
   height: var(--app-height, 100svh);
+  max-width: none;
   flex-direction: column;
   overflow: hidden;
   padding-right: env(safe-area-inset-right);
@@ -124,17 +127,6 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
   flex: 1;
   flex-direction: column;
   overflow: hidden;
-}
-
-@media (min-width: 540px) {
-  html { background: #d8d8de; }
-  html[data-theme='dark'] { background: #000; }
-  .app-shell {
-    left: 50%;
-    width: min(100%, var(--phone-width));
-    transform: translateX(-50%) translateZ(0);
-    box-shadow: var(--shadow);
-  }
 }
 
 .skip-link {
@@ -301,9 +293,7 @@ svg { flex: 0 0 auto; width: 22px; height: 22px; }
   justify-content: space-between;
   padding: 4px 10px calc(8px + env(safe-area-inset-bottom));
   background: var(--toolbar);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-top: 0.5px solid var(--line);
+  border-top: 1px solid var(--toolbar-border);
 }
 
 .compose-button,
@@ -442,7 +432,6 @@ body.is-dragging-task {
   z-index: 150;
   display: flex;
   gap: 8px;
-  max-width: calc(var(--phone-width) - 24px);
   min-height: 52px;
   align-items: center;
   margin: 0 auto;
