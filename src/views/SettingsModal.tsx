@@ -164,7 +164,7 @@ export function SettingsModal({ state, storageMode, updateSettings, replaceState
         <section className="settings-group">
           <div className="settings-group-heading">
             <h3>Theme</h3>
-            <span className="settings-group-note">Choose how Notes appears</span>
+            <span className="settings-group-note">Choose how Slate appears</span>
           </div>
           <div className="theme-options" role="radiogroup" aria-label="Theme">
             {THEME_OPTIONS.map(({ id, label, icon: Icon }) => (
@@ -184,10 +184,10 @@ export function SettingsModal({ state, storageMode, updateSettings, replaceState
           <p className="settings-note">System follows your device appearance.</p>
           <button
             type="button"
-            className="note-menu-item"
+            className="list-menu-item"
             onClick={() => updateSettings({ hideCompleted: !state.settings.hideCompleted })}
           >
-            {state.settings.hideCompleted ? 'Show Checked Items' : 'Hide Checked Items'}
+            {state.settings.hideCompleted ? 'Show checked tasks' : 'Hide checked tasks'}
           </button>
         </section>
 
@@ -195,7 +195,7 @@ export function SettingsModal({ state, storageMode, updateSettings, replaceState
           <div className="settings-group-heading">
             <h3>Data</h3>
             <span className="settings-group-note">
-              <HardDrive aria-hidden="true" /> {liveSections} notes · {liveTasks} items · {storageMode === 'indexeddb' ? 'IndexedDB' : 'localStorage'}
+              <HardDrive aria-hidden="true" /> {liveSections} lists · {liveTasks} tasks · {storageMode === 'indexeddb' ? 'IndexedDB' : 'localStorage'}
             </span>
           </div>
           <div className="data-tools">
