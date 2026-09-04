@@ -12,6 +12,7 @@ import {
   type TaskPriority,
   type ThemePreference,
 } from './model';
+import type { ImportedList } from './import-markdown';
 import { applyMoveTask } from './move-task';
 import { needsRebalance, orderBetween, rebalanced, sortByOrder, ORDER_GAP } from './order';
 import { mergeStates, stableStringify, timestampAfterState } from './sync-core';
@@ -55,6 +56,7 @@ export interface SlateStore {
   clearCompleted: (sectionId: string) => void;
   addTask: (sectionId: string, title: string, extras?: TaskExtras) => string | undefined;
   addTaskToNewSection: (sectionTitle: string, title: string, extras?: TaskExtras) => void;
+  importLists: (lists: ImportedList[]) => number;
   updateTask: (taskId: string, patch: Partial<Pick<Task, 'title' | 'notes' | 'due' | 'priority' | 'sectionId'>>) => void;
   toggleTask: (taskId: string) => void;
   countPomodoro: (taskId: string) => void;
@@ -697,6 +699,76 @@ export function useSlateStore(): SlateStore {
     ]);
   }, [commit, buildTask, changedSectionsMutation, changedTasksMutation]);
 
+  // Bulk markdown import. Deliberately ONE commit for the whole paste: routing
+  // each task through addTask would produce a commit, a render and a queued
+  // Firestore mutation per task, which for a full day's outline is dozens of
+  // each. An imported list whose title matches a live list appends to that list
+  // rather than creating a second one with the same name.
+  const importLists = useCallback((incoming: ImportedList[]) => {
+    let created = 0;
+    commit((previous) => {
+      const usable = incoming
+        .map((list) => ({
+          title: list.title.trim(),
+          tasks: list.tasks.filter((task) => task.title.trim()),
+        }))
+        .filter((list) => list.title && list.tasks.length);
+      if (!usable.length) return previous;
+
+      const now = timestampAfterState(previous);
+      const sections = [...previous.sections];
+      const tasks = [...previous.tasks];
+      const live = sections.filter((section) => !section.deleted);
+      let sectionOrder = live.length ? Math.max(...live.map((section) => section.order)) : 0;
+
+      for (const list of usable) {
+        let target = live.find(
+          (section) => section.title.trim().toLowerCase() === list.title.toLowerCase(),
+        );
+        if (!target) {
+          sectionOrder += ORDER_GAP;
+          target = {
+            id: makeId('section'),
+            title: list.title.slice(0, 200),
+            color: DEFAULT_COLOR,
+            order: sectionOrder,
+            collapsed: false,
+            createdAt: now,
+            updatedAt: now,
+          };
+          sections.push(target);
+          live.push(target);
+        }
+
+        const sectionId = target.id;
+        const siblings = tasks.filter((task) => task.sectionId === sectionId && !task.deleted);
+        let taskOrder = siblings.length ? Math.max(...siblings.map((task) => task.order)) : 0;
+
+        for (const item of list.tasks) {
+          taskOrder += ORDER_GAP;
+          tasks.push({
+            id: makeId('task'),
+            sectionId,
+            title: item.title.trim().slice(0, 400),
+            notes: '',
+            done: item.done,
+            ...(item.done ? { completedAt: now } : {}),
+            order: taskOrder,
+            createdAt: now,
+            updatedAt: now,
+          });
+          created += 1;
+        }
+      }
+
+      return { ...previous, sections, tasks };
+    }, (next, previous) => [
+      changedSectionsMutation(next, previous),
+      changedTasksMutation(next, previous),
+    ]);
+    return created;
+  }, [commit, changedSectionsMutation, changedTasksMutation]);
+
   const updateTask = useCallback((taskId: string, patch: Partial<Pick<Task, 'title' | 'notes' | 'due' | 'priority' | 'sectionId'>>) => {
     commit((previous) => {
       const now = timestampAfterState(previous);
@@ -866,6 +938,7 @@ export function useSlateStore(): SlateStore {
     clearCompleted,
     addTask,
     addTaskToNewSection,
+    importLists,
     updateTask,
     toggleTask,
     countPomodoro,
@@ -892,6 +965,7 @@ export function useSlateStore(): SlateStore {
     clearCompleted,
     addTask,
     addTaskToNewSection,
+    importLists,
     updateTask,
     toggleTask,
     countPomodoro,
