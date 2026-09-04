@@ -175,7 +175,13 @@ svg { flex: 0 0 auto; width: 20px; height: 20px; }
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  padding: calc(var(--space-2) + env(safe-area-inset-top)) var(--space-3) var(--space-2) var(--space-4);
+  /* Share the content column's width and centring, or on a wide screen the
+     title and buttons hug the window edges while the board sits in a narrow
+     column below them, and nothing lines up. */
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: calc(var(--space-2) + env(safe-area-inset-top)) var(--space-4) var(--space-2);
 }
 .app-title {
   font-size: 28px;
@@ -300,6 +306,20 @@ svg { flex: 0 0 auto; width: 20px; height: 20px; }
 }
 @media (min-width: 760px) {
   .lists { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+}
+
+/* The column grows with the viewport instead of staying phone-width. Every
+   centred surface — app bar, board, timer bar, undo toast — reads --content-max,
+   so widening the token here adapts the whole layout, and the auto-fill grid
+   above turns the extra room into more list columns (1 → 2 → 3 → 4). */
+@media (min-width: 760px) {
+  :root { --content-max: 900px; }
+}
+@media (min-width: 1100px) {
+  :root { --content-max: 1180px; }
+}
+@media (min-width: 1500px) {
+  :root { --content-max: 1420px; }
 }
 
 .list {
