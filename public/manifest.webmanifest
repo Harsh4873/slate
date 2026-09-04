@@ -1,13 +1,13 @@
 {
   "name": "Slate",
   "short_name": "Slate",
-  "description": "Private, local-first Notes-style checklists.",
+  "description": "A private, local-first to-do list.",
   "start_url": "/slate/",
   "scope": "/slate/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#f2f2f7",
-  "theme_color": "#f2f2f7",
+  "background_color": "#f5f6f8",
+  "theme_color": "#f5f6f8",
   "icons": [
     {
       "src": "/slate/apple-touch-icon.png",

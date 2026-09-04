@@ -1,26 +1,25 @@
-import { LoaderCircle, ShieldCheck } from 'lucide-react';
+import { LoaderCircle, Moon, Plus, Settings2, ShieldCheck, Sun } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { usePomodoro } from './usePomodoro';
 import { useSlateStore } from './store';
 import { useSlateSync } from './useSlateSync';
 import { useViewportLock } from './useViewportLock';
-import { NoteEditor } from './views/NoteEditor';
-import { NotesList } from './views/NotesList';
+import { Board } from './views/Board';
 import { SettingsModal } from './views/SettingsModal';
 
-const THEME_COLOR = { light: '#f2f2f7', dark: '#000000' } as const;
+const THEME_COLOR = { light: '#f5f6f8', dark: '#0e1014' } as const;
 
-function readHash(): { noteId: string | null; settings: boolean } {
+function readSettingsRoute(): boolean {
   const hash = window.location.hash.replace(/^#/, '');
-  if (hash === 'settings' || hash === 'profile') return { noteId: null, settings: true };
-  if (hash.startsWith('note/')) return { noteId: hash.slice(5) || null, settings: false };
-  return { noteId: null, settings: false };
+  return hash === 'settings' || hash === 'profile';
 }
 
 export default function App() {
   useViewportLock();
   const store = useSlateStore();
   const sync = useSlateSync(store);
-  const [route, setRoute] = useState(readHash);
+  const pomodoro = usePomodoro(store.countPomodoro);
+  const [settingsOpen, setSettingsOpen] = useState(readSettingsRoute);
   const [systemTheme, setSystemTheme] = useState<'dark' | 'light'>(() => (
     window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   ));
@@ -37,7 +36,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const onHash = () => setRoute(readHash());
+    const onHash = () => setSettingsOpen(readSettingsRoute());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -51,30 +50,18 @@ export default function App() {
     );
   }, [resolvedTheme, Boolean(store.state)]);
 
-  function openNote(id: string) {
-    window.location.hash = `note/${id}`;
-  }
-
-  function openList() {
-    window.location.hash = '';
-  }
-
   if (!store.state) {
     return (
       <div className="loading-screen" role="status">
-        <span>Notes</span>
+        <span>Slate</span>
       </div>
     );
   }
 
   const state = store.state;
-  const activeNote = route.noteId
-    ? state.sections.find((section) => section.id === route.noteId && !section.deleted) ?? null
-    : null;
 
-  function compose() {
-    const id = store.addSection('New Note');
-    if (id) openNote(id);
+  function toggleTheme() {
+    store.updateSettings({ theme: resolvedTheme === 'dark' ? 'light' : 'dark' });
   }
 
   return (
@@ -93,8 +80,46 @@ export default function App() {
           document.getElementById('main-content')?.focus();
         }}
       >
-        Skip to notes
+        Skip to lists
       </a>
+
+      <header className="app-bar">
+        <h1 className="app-title">Slate</h1>
+        <div className="app-bar-tools">
+          <button
+            type="button"
+            className="icon-button add-list"
+            aria-label="New list"
+            onClick={() => {
+              const id = store.addSection('');
+              if (id) {
+                setTimeout(() => {
+                  document.querySelector<HTMLInputElement>(`input.list-title[data-section-id="${id}"]`)?.focus();
+                }, 0);
+              }
+            }}
+          >
+            <Plus aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={resolvedTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            aria-pressed={resolvedTheme === 'dark'}
+            onClick={toggleTheme}
+          >
+            {resolvedTheme === 'dark' ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Settings"
+            onClick={() => { window.location.hash = 'settings'; }}
+          >
+            <Settings2 aria-hidden="true" />
+          </button>
+        </div>
+      </header>
 
       {store.storageWarning && (
         <div className="storage-warning" role="alert">
@@ -104,38 +129,28 @@ export default function App() {
         </div>
       )}
 
-      <main id="main-content" tabIndex={-1}>
-        {activeNote ? (
-          <NoteEditor
-            section={activeNote}
-            tasks={state.tasks}
-            hideCompleted={state.settings.hideCompleted}
-            renameSection={store.renameSection}
-            addTask={store.addTask}
-            updateTask={store.updateTask}
-            toggleTask={store.toggleTask}
-            moveTask={store.moveTask}
-            deleteTask={store.deleteTask}
-            restoreTasks={store.restoreTasks}
-            deleteSection={store.deleteSection}
-            restoreSection={store.restoreSection}
-            clearCompleted={store.clearCompleted}
-            onBack={openList}
-          />
-        ) : (
-          <>
-            <NotesList
-              sections={state.sections}
-              tasks={state.tasks}
-              onOpen={openNote}
-              onCompose={compose}
-              onSettings={() => { window.location.hash = 'settings'; }}
-            />
-          </>
-        )}
+      <main id="main-content" className="board" tabIndex={-1}>
+        <Board
+          sections={state.sections}
+          tasks={state.tasks}
+          settings={state.settings}
+          pomodoro={pomodoro}
+          renameSection={store.renameSection}
+          setSectionColor={store.setSectionColor}
+          toggleSectionCollapsed={store.toggleSectionCollapsed}
+          deleteSection={store.deleteSection}
+          restoreSection={store.restoreSection}
+          clearCompleted={store.clearCompleted}
+          addTask={store.addTask}
+          updateTask={store.updateTask}
+          toggleTask={store.toggleTask}
+          moveTask={store.moveTask}
+          deleteTask={store.deleteTask}
+          restoreTasks={store.restoreTasks}
+        />
       </main>
 
-      {route.settings && (
+      {settingsOpen && (
         <SettingsModal
           state={state}
           storageMode={store.storageMode}
@@ -143,9 +158,7 @@ export default function App() {
           replaceState={store.replaceState}
           resetState={store.resetState}
           sync={sync}
-          onClose={() => {
-            window.location.hash = activeNote ? `note/${activeNote.id}` : '';
-          }}
+          onClose={() => { window.location.hash = ''; }}
         />
       )}
     </div>

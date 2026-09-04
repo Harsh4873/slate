@@ -28,6 +28,9 @@ export interface Task {
   completedAt?: string;
   due?: string;
   priority?: TaskPriority;
+  // Count of completed focus sessions. Durable, syncable data — distinct from
+  // the device-local running timer, which never enters the synced app state.
+  pomodoroCompleted?: number;
   order: number;
   createdAt: string;
   updatedAt: string;

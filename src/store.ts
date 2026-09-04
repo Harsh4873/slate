@@ -57,6 +57,7 @@ export interface SlateStore {
   addTaskToNewSection: (sectionTitle: string, title: string, extras?: TaskExtras) => void;
   updateTask: (taskId: string, patch: Partial<Pick<Task, 'title' | 'notes' | 'due' | 'priority' | 'sectionId'>>) => void;
   toggleTask: (taskId: string) => void;
+  countPomodoro: (taskId: string) => void;
   moveTask: (taskId: string, sectionId: string, beforeTaskId: string | null) => void;
   deleteTask: (taskId: string) => void;
   restoreTasks: (taskIds: string[]) => void;
@@ -147,6 +148,9 @@ function parseTask(value: unknown): Task | null {
     ...(isTimestamp(raw.completedAt) ? { completedAt: raw.completedAt } : {}),
     ...(isDateKey(raw.due) ? { due: raw.due } : {}),
     ...(isPriority(raw.priority) ? { priority: raw.priority } : {}),
+    ...(typeof raw.pomodoroCompleted === 'number' && Number.isInteger(raw.pomodoroCompleted) && raw.pomodoroCompleted > 0
+      ? { pomodoroCompleted: raw.pomodoroCompleted }
+      : {}),
     order: raw.order,
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,
@@ -731,6 +735,19 @@ export function useSlateStore(): SlateStore {
     }, (next, previous) => [changedTasksMutation(next, previous)]);
   }, [commit, changedTasksMutation]);
 
+  const countPomodoro = useCallback((taskId: string) => {
+    commit((previous) => {
+      const now = timestampAfterState(previous);
+      let changed = false;
+      const tasks = previous.tasks.map((task) => {
+        if (task.id !== taskId || task.deleted) return task;
+        changed = true;
+        return { ...task, pomodoroCompleted: (task.pomodoroCompleted ?? 0) + 1, updatedAt: now };
+      });
+      return changed ? { ...previous, tasks } : previous;
+    }, (next, previous) => [changedTasksMutation(next, previous)]);
+  }, [commit, changedTasksMutation]);
+
   const moveTask = useCallback((taskId: string, sectionId: string, beforeTaskId: string | null) => {
     commit(
       (previous) => applyMoveTask(previous, taskId, sectionId, beforeTaskId, timestampAfterState(previous)),
@@ -851,6 +868,7 @@ export function useSlateStore(): SlateStore {
     addTaskToNewSection,
     updateTask,
     toggleTask,
+    countPomodoro,
     moveTask,
     deleteTask,
     restoreTasks,
@@ -876,6 +894,7 @@ export function useSlateStore(): SlateStore {
     addTaskToNewSection,
     updateTask,
     toggleTask,
+    countPomodoro,
     moveTask,
     deleteTask,
     restoreTasks,

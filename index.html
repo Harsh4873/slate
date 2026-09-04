@@ -3,16 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
-    <meta name="theme-color" content="#f2f2f7" />
+    <meta name="theme-color" content="#f5f6f8" />
     <meta name="color-scheme" content="light dark" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Slate" />
     <link rel="manifest" href="/slate/manifest.webmanifest" />
-    <meta name="description" content="Slate is a private, local-first Notes-style checklist." />
+    <meta name="description" content="Slate is a private, local-first to-do list. Organize tasks into lists, check them off, and stay in sync across devices." />
     <meta property="og:title" content="Slate" />
-    <meta property="og:description" content="Checklists, like Notes." />
+    <meta property="og:description" content="A private, local-first to-do list." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://harsh.bet/slate/" />
     <meta property="og:image" content="https://harsh.bet/slate/social-card.svg" />
@@ -26,8 +26,8 @@
       // localStorage mirror even when IndexedDB is available, so this makes
       // explicit Light/Dark choices feel immediate; System follows the OS.
       (() => {
-        const light = '#f2f2f7';
-        const dark = '#000000';
+        const light = '#f5f6f8';
+        const dark = '#0e1014';
         const systemTheme = () => (
           matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
         );
