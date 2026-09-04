@@ -1,10 +1,11 @@
-import { LoaderCircle, Moon, Plus, Settings2, ShieldCheck, Sun } from 'lucide-react';
+import { ClipboardPaste, LoaderCircle, Moon, Plus, Settings2, ShieldCheck, Sun } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { usePomodoro } from './usePomodoro';
 import { useSlateStore } from './store';
 import { useSlateSync } from './useSlateSync';
 import { useViewportLock } from './useViewportLock';
 import { Board } from './views/Board';
+import { ImportModal } from './views/ImportModal';
 import { SettingsModal } from './views/SettingsModal';
 
 const THEME_COLOR = { light: '#f5f6f8', dark: '#0e1014' } as const;
@@ -19,6 +20,7 @@ export default function App() {
   const store = useSlateStore();
   const sync = useSlateSync(store);
   const pomodoro = usePomodoro(store.countPomodoro);
+  const [importOpen, setImportOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(readSettingsRoute);
   const [systemTheme, setSystemTheme] = useState<'dark' | 'light'>(() => (
     window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
@@ -104,6 +106,14 @@ export default function App() {
           <button
             type="button"
             className="icon-button"
+            aria-label="Import tasks"
+            onClick={() => setImportOpen(true)}
+          >
+            <ClipboardPaste aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="icon-button"
             aria-label={resolvedTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
             aria-pressed={resolvedTheme === 'dark'}
             onClick={toggleTheme}
@@ -149,6 +159,14 @@ export default function App() {
           restoreTasks={store.restoreTasks}
         />
       </main>
+
+      {importOpen && (
+        <ImportModal
+          sections={state.sections}
+          onClose={() => setImportOpen(false)}
+          onImport={store.importLists}
+        />
+      )}
 
       {settingsOpen && (
         <SettingsModal

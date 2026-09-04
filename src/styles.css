@@ -901,6 +901,90 @@ body.is-dragging-task * { cursor: grabbing !important; }
 .modal-actions { display: flex; gap: var(--space-2); align-items: center; }
 .modal-actions-spacer { flex: 1; }
 
+/* ── Import ──────────────────────────────────────────────────────── */
+
+.import-pane {
+  display: grid;
+  gap: var(--space-3);
+}
+.import-input {
+  width: 100%;
+  min-height: 200px;
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  tab-size: 2;
+}
+.import-input:focus-visible {
+  border-color: var(--accent);
+}
+.import-hint,
+.import-dropped,
+.import-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.import-hint code,
+.import-empty code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.import-preview {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+}
+.import-summary {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+}
+.import-summary svg {
+  color: var(--accent);
+}
+.import-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.import-list li {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  justify-content: space-between;
+}
+.import-list-title {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.import-list-count {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 /* ── Empty state (from ui.tsx) ───────────────────────────────────── */
 
 .empty-state {
