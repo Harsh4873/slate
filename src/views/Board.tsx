@@ -513,8 +513,9 @@ function ListCard({
                   role="menuitem"
                   disabled={doneCount === 0}
                   onClick={() => {
-                    const doneIds = tasks.filter((task) => task.done).map((task) => task.id);
-                    clearCompleted(section.id);
+                    // `tasks` is the search-filtered list; the deleted IDs come
+                    // back from the store so Undo restores hidden matches too.
+                    const doneIds = clearCompleted(section.id);
                     closeMenu();
                     pushUndo('Cleared checked tasks', () => restoreTasks(doneIds));
                   }}

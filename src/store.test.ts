@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialState, DEFAULT_SECTION_TITLE, STARTER_INBOX_ID, type SlateState, type Task } from './model';
-import { buildStorageEnvelope, parseSlateState } from './store';
+import { applyClearCompleted, applyRestoreTasks, buildStorageEnvelope, parseSlateState } from './store';
 
 const NOW = '2026-07-12T10:00:00.000Z';
 
@@ -151,5 +151,73 @@ describe('buildStorageEnvelope', () => {
     const envelope = buildStorageEnvelope(populatedState(), new Date(NOW));
     await expect(`${JSON.stringify(envelope, null, 2)}\n`)
       .toMatchFileSnapshot('../tests/fixtures/today-slate-payload.json');
+  });
+});
+
+describe('clearCompleted undo contract', () => {
+  const CLEAR_AT = '2026-07-12T11:00:00.000Z';
+  const RESTORE_AT = '2026-07-12T12:00:00.000Z';
+
+  function clearedState(): SlateState {
+    return {
+      ...createInitialState(NOW),
+      tasks: [
+        task({ id: 'task-alpha', title: 'alpha report', order: 1000, done: true, completedAt: NOW }),
+        task({ id: 'task-beta', title: 'beta review', order: 2000, done: true, completedAt: NOW }),
+        task({ id: 'task-gamma', title: 'gamma draft', order: 3000 }),
+      ],
+    };
+  }
+
+  // Mirrors the store's changed-tasks mutation: the records sync uploads.
+  function changedTasks(previous: SlateState, next: SlateState): Task[] {
+    const previousById = new Map(previous.tasks.map((item) => [item.id, item]));
+    return next.tasks.filter((item) => previousById.get(item.id) !== item);
+  }
+
+  it('deletes every completed task in the section and returns those exact IDs for Undo', () => {
+    const previous = clearedState();
+    const { next, deletedIds } = applyClearCompleted(previous, STARTER_INBOX_ID, CLEAR_AT);
+    expect(deletedIds).toEqual(['task-alpha', 'task-beta']);
+    const changed = changedTasks(previous, next);
+    expect(changed.map((item) => item.id).sort()).toEqual([...deletedIds].sort());
+    expect(changed.every((item) => item.deleted === true)).toBe(true);
+    expect(next.tasks.find((item) => item.id === 'task-gamma')?.deleted).toBeUndefined();
+  });
+
+  it('restores hidden matches when Undo uses the returned IDs (search "alpha" repro)', () => {
+    const previous = clearedState();
+    const { next: cleared, deletedIds } = applyClearCompleted(previous, STARTER_INBOX_ID, CLEAR_AT);
+    const visibleIds = previous.tasks
+      .filter((item) => item.done && !item.deleted && item.title.toLowerCase().includes('alpha'))
+      .map((item) => item.id);
+    expect(visibleIds).toEqual(['task-alpha']);
+
+    // The old Undo captured only the visible IDs and stranded beta deleted.
+    const partial = applyRestoreTasks(cleared, visibleIds, RESTORE_AT);
+    expect(partial.tasks.find((item) => item.id === 'task-beta')?.deleted).toBe(true);
+
+    const full = applyRestoreTasks(cleared, deletedIds, RESTORE_AT);
+    expect(full.tasks.filter((item) => item.deleted)).toEqual([]);
+    expect(full.tasks.find((item) => item.id === 'task-alpha')?.done).toBe(true);
+    expect(full.tasks.find((item) => item.id === 'task-beta')?.done).toBe(true);
+  });
+
+  it('round-trips the unfiltered list with matching synced restore records', () => {
+    const previous = clearedState();
+    const { next: cleared, deletedIds } = applyClearCompleted(previous, STARTER_INBOX_ID, CLEAR_AT);
+    const restored = applyRestoreTasks(cleared, deletedIds, RESTORE_AT);
+    const changed = changedTasks(cleared, restored);
+    expect(changed.map((item) => item.id).sort()).toEqual(['task-alpha', 'task-beta']);
+    expect(changed.every((item) => item.deleted === undefined)).toBe(true);
+    expect(restored.tasks.find((item) => item.id === 'task-gamma'))
+      .toBe(previous.tasks.find((item) => item.id === 'task-gamma'));
+  });
+
+  it('returns an empty ID set and keeps state untouched when nothing is done', () => {
+    const previous = clearedState();
+    const { next, deletedIds } = applyClearCompleted(previous, 'section-other', CLEAR_AT);
+    expect(deletedIds).toEqual([]);
+    expect(next).toBe(previous);
   });
 });

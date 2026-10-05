@@ -53,7 +53,7 @@ export interface SlateStore {
   moveSection: (sectionId: string, direction: -1 | 1) => void;
   deleteSection: (sectionId: string) => void;
   restoreSection: (sectionId: string, taskIds: string[]) => void;
-  clearCompleted: (sectionId: string) => void;
+  clearCompleted: (sectionId: string) => string[];
   addTask: (sectionId: string, title: string, extras?: TaskExtras) => string | undefined;
   addTaskToNewSection: (sectionTitle: string, title: string, extras?: TaskExtras) => void;
   importLists: (lists: ImportedList[]) => number;
@@ -296,6 +296,44 @@ function preserveCorruptCopy(key: string, rawText: string) {
   } catch {
     // Recovery copies are best-effort.
   }
+}
+
+/**
+ * Pure transition behind `clearCompleted`: tombstones every completed task in
+ * the section and returns the exact deleted IDs. The caller feeds those IDs
+ * to `restoreTasks` for Undo, so deletion and Undo always share one ID set —
+ * including tasks hidden by a search filter, which the visible list omits.
+ */
+export function applyClearCompleted(
+  previous: SlateState,
+  sectionId: string,
+  now: string,
+): { next: SlateState; deletedIds: string[] } {
+  const deletedIds = previous.tasks
+    .filter((task) => task.sectionId === sectionId && task.done && !task.deleted)
+    .map((task) => task.id);
+  if (!deletedIds.length) return { next: previous, deletedIds };
+  const doomed = new Set(deletedIds);
+  const tasks = previous.tasks.map((task) => (
+    doomed.has(task.id) ? { ...task, deleted: true as const, updatedAt: now } : task
+  ));
+  return { next: { ...previous, tasks }, deletedIds };
+}
+
+/**
+ * Pure transition behind `restoreTasks`: un-tombstones exactly the given IDs.
+ */
+export function applyRestoreTasks(previous: SlateState, taskIds: string[], now: string): SlateState {
+  if (!taskIds.length) return previous;
+  const ids = new Set(taskIds);
+  let changed = false;
+  const tasks = previous.tasks.map((task) => {
+    if (!ids.has(task.id) || !task.deleted) return task;
+    changed = true;
+    const { deleted: _deleted, ...revived } = task;
+    return { ...revived, updatedAt: now };
+  });
+  return changed ? { ...previous, tasks } : previous;
 }
 
 export function useSlateStore(): SlateStore {
@@ -617,19 +655,13 @@ export function useSlateStore(): SlateStore {
   }, [commit, changedSectionsMutation, changedTasksMutation]);
 
   const clearCompleted = useCallback((sectionId: string) => {
+    let deletedIds: string[] = [];
     commit((previous) => {
-      const now = timestampAfterState(previous);
-      const doneIds = new Set(
-        previous.tasks
-          .filter((task) => task.sectionId === sectionId && task.done && !task.deleted)
-          .map((task) => task.id),
-      );
-      if (!doneIds.size) return previous;
-      const tasks = previous.tasks.map((task) => (
-        doneIds.has(task.id) ? { ...task, deleted: true as const, updatedAt: now } : task
-      ));
-      return { ...previous, tasks };
+      const result = applyClearCompleted(previous, sectionId, timestampAfterState(previous));
+      deletedIds = result.deletedIds;
+      return result.next;
     }, (next, previous) => [changedTasksMutation(next, previous)]);
+    return deletedIds;
   }, [commit, changedTasksMutation]);
 
   const buildTask = useCallback((previous: SlateState, sectionId: string, title: string, extras: TaskExtras | undefined, now: string): Task => {
@@ -844,18 +876,10 @@ export function useSlateStore(): SlateStore {
   // the restore wins the last-write-wins merge on every device.
   const restoreTasks = useCallback((taskIds: string[]) => {
     if (!taskIds.length) return;
-    commit((previous) => {
-      const now = timestampAfterState(previous);
-      const ids = new Set(taskIds);
-      let changed = false;
-      const tasks = previous.tasks.map((task) => {
-        if (!ids.has(task.id) || !task.deleted) return task;
-        changed = true;
-        const { deleted: _deleted, ...revived } = task;
-        return { ...revived, updatedAt: now };
-      });
-      return changed ? { ...previous, tasks } : previous;
-    }, (next, previous) => [changedTasksMutation(next, previous)]);
+    commit(
+      (previous) => applyRestoreTasks(previous, taskIds, timestampAfterState(previous)),
+      (next, previous) => [changedTasksMutation(next, previous)],
+    );
   }, [commit, changedTasksMutation]);
 
   const updateSettings = useCallback((patch: Partial<Pick<SlateSettings, 'theme' | 'hideCompleted'>>) => {
