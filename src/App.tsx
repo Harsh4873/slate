@@ -96,7 +96,9 @@ export default function App() {
               const id = store.addSection('');
               if (id) {
                 setTimeout(() => {
-                  document.querySelector<HTMLInputElement>(`input.list-title[data-section-id="${id}"]`)?.focus();
+                  const title = document.querySelector<HTMLInputElement>(`input.list-title[data-section-id="${id}"]`);
+                  title?.focus();
+                  title?.select();
                 }, 0);
               }
             }}

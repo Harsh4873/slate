@@ -270,6 +270,14 @@ svg { flex: 0 0 auto; width: 20px; height: 20px; }
   margin: 0 auto;
   padding: var(--space-2) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom));
 }
+/* The timer and undo toast are docked over the bottom of the scrollport. */
+.board-inner:has(.timer-bar),
+.board-inner:has(.undo-toast) {
+  padding-bottom: calc(84px + env(safe-area-inset-bottom));
+}
+.board-inner:has(.timer-bar):has(.undo-toast) {
+  padding-bottom: calc(148px + env(safe-area-inset-bottom));
+}
 
 /* ── Search ──────────────────────────────────────────────────────── */
 
@@ -295,6 +303,10 @@ svg { flex: 0 0 auto; width: 20px; height: 20px; }
 }
 .board-search input::placeholder { color: var(--text-faint); }
 .board-search input[type='search']::-webkit-search-cancel-button { -webkit-appearance: none; }
+.board-search:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 /* ── Lists grid ──────────────────────────────────────────────────── */
 
@@ -326,7 +338,11 @@ svg { flex: 0 0 auto; width: 20px; height: 20px; }
   border-radius: var(--r-lg);
   background: var(--surface);
   box-shadow: var(--shadow-1);
-  overflow: hidden;
+  /* Visible so the actions menu can drop past a short or collapsed card.
+     min-width: 0 keeps the card inside the grid column; overflow other than
+     visible would zero the automatic minimum and hide that menu. */
+  min-width: 0;
+  overflow: visible;
 }
 .list.is-recovered {
   background: color-mix(in srgb, var(--surface) 92%, var(--danger));
@@ -560,6 +576,12 @@ svg { flex: 0 0 auto; width: 20px; height: 20px; }
 
 /* ── Task text ───────────────────────────────────────────────────── */
 
+.task-text-field {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
 .task-text {
   position: relative;
   flex: 1;
@@ -575,23 +597,27 @@ svg { flex: 0 0 auto; width: 20px; height: 20px; }
   user-select: text;
 }
 .task-text::placeholder { color: var(--text-faint); }
-.task-text::after {                    /* animated strikethrough bar */
+/* Inputs do not generate ::after, so the strike is a real element. */
+.task-strike {
   position: absolute;
   top: 50%;
   right: 0;
   left: 0;
   height: 1px;
   background: currentColor;
-  content: '';
+  pointer-events: none;
   transform: scaleX(0);
-  transform-origin: left;
+  transform-origin: left center;
   transition: transform 260ms var(--ease);
 }
 .task-row.is-done .task-text {
   color: var(--text-muted);
   transition: color var(--dur) var(--ease);
 }
-.task-row.is-done .task-text::after { transform: scaleX(1); }
+.task-row.is-done .task-strike {
+  color: var(--text-muted);
+  transform: scaleX(1);
+}
 
 /* ── Grip (hover-revealed, accessibly) ───────────────────────────── */
 
@@ -695,7 +721,7 @@ svg { flex: 0 0 auto; width: 20px; height: 20px; }
   right: var(--space-3);
   bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
   left: var(--space-3);
-  z-index: 140;
+  z-index: 30;
   display: flex;
   gap: var(--space-2);
   align-items: center;
@@ -737,7 +763,7 @@ svg { flex: 0 0 auto; width: 20px; height: 20px; }
   right: var(--space-3);
   bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
   left: var(--space-3);
-  z-index: 150;
+  z-index: 40;
   display: flex;
   gap: var(--space-2);
   min-height: 52px;
@@ -749,6 +775,9 @@ svg { flex: 0 0 auto; width: 20px; height: 20px; }
   background: var(--surface);
   box-shadow: var(--shadow-2);
   font-size: 15px;
+}
+.timer-bar ~ .undo-toast {
+  bottom: calc(52px + var(--space-2) + var(--space-3) + env(safe-area-inset-bottom));
 }
 .undo-toast > span:first-child { min-width: 0; flex: 1; }
 .undo-toast-action {
@@ -1014,7 +1043,7 @@ body.is-dragging-task * { cursor: grabbing !important; }
 .task-row.is-animating .task-bubble {
   animation: bubble-pop var(--dur-slow) var(--ease) forwards;
 }
-.task-row.is-animating .task-text::after {
+.task-row.is-animating .task-strike {
   animation: strike-in 260ms var(--ease) forwards;
 }
 

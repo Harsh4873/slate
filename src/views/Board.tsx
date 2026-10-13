@@ -239,8 +239,8 @@ export function Board({
       {boardIsEmpty && <p className="board-empty">{emptyCopy}</p>}
 
       {runtime && (
-        <div className="timer-bar" role="status">
-          <span className="timer-phase">{PHASE_LABELS[runtime.phase]}</span>
+        <div className="timer-bar">
+          <span className="timer-phase" role="status">{PHASE_LABELS[runtime.phase]}</span>
           <span className="timer-time">{formatRemaining(pomodoro.remaining)}</span>
           <span className="timer-task">{timerTask?.title.trim() || 'Untitled task'}</span>
           <button
@@ -393,7 +393,9 @@ function ListCard({
     pushUndo(`Deleted “${section.title || 'list'}”`, () => restoreSection(section.id, taskIds));
   }
 
-  const doneCount = tasks.filter((task) => task.done).length;
+  // `tasks` is the visible list, so it omits rows hidden by search or
+  // "hide checked". Clear still removes every completed task in the section.
+  const doneCount = allTasks.filter((task) => task.sectionId === section.id && task.done && !task.deleted).length;
   const firstTaskId = tasks.length > 0 ? tasks[0].id : null;
   const droppingHere = drag.dropTarget?.sectionId === section.id;
   const droppingAtEnd = droppingHere && drag.dropTarget?.beforeTaskId === null && tasks.length > 0;
@@ -425,7 +427,10 @@ function ListCard({
           type="button"
           className="list-dot"
           aria-label="List colour"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
           style={{ color: section.color }}
+          onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation();
             setMenuOpen((open) => !open);
@@ -683,7 +688,9 @@ function TaskRow({
   const dragging = drag.dragTaskId === task.id;
   const droppingBefore = drag.dropTarget?.beforeTaskId === task.id;
   const animating = completion.isAnimating(task.id);
-  const timerRunning = pomodoro.isRunning(task.id);
+  const session = pomodoro.runtime?.taskId === task.id ? pomodoro.runtime : null;
+  const timerRunning = session !== null && !session.paused;
+  const taskLabel = task.title.trim() || 'Untitled task';
   const tomatoes = task.pomodoroCompleted ?? 0;
 
   return (
@@ -713,7 +720,7 @@ function TaskRow({
         className="task-check"
         role="checkbox"
         aria-checked={task.done}
-        aria-label={task.done ? 'Mark task as not done' : 'Mark task as done'}
+        aria-label={task.done ? `Mark ${taskLabel} as not done` : `Mark ${taskLabel} as done`}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={() => {
           if (drag.wasConsumed()) return;
@@ -733,35 +740,38 @@ function TaskRow({
       >
         <GripVertical aria-hidden="true" />
       </span>
-      <input
-        ref={inputRef}
-        className="task-text"
-        data-task-id={task.id}
-        value={text}
-        placeholder="Task"
-        aria-label="Task"
-        maxLength={400}
-        onChange={(event) => {
-          setText(event.target.value);
-          scheduleCommit(event.target.value);
-        }}
-        onBlur={commitNow}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            commitNow();
-            const id = addTask(task.sectionId, '', { afterTaskId: task.id });
-            if (id) setFocusId(id);
-          } else if (event.key === 'Backspace' && text.length === 0 && event.currentTarget.selectionStart === 0) {
-            const index = siblings.findIndex((item) => item.id === task.id);
-            const previous = siblings[index - 1];
-            event.preventDefault();
-            window.clearTimeout(commitTimerRef.current);
-            deleteTask(task.id);
-            if (previous) setFocusId(previous.id);
-          }
-        }}
-      />
+      <span className="task-text-field">
+        <input
+          ref={inputRef}
+          className="task-text"
+          data-task-id={task.id}
+          value={text}
+          placeholder="Task"
+          aria-label="Task"
+          maxLength={400}
+          onChange={(event) => {
+            setText(event.target.value);
+            scheduleCommit(event.target.value);
+          }}
+          onBlur={commitNow}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              commitNow();
+              const id = addTask(task.sectionId, '', { afterTaskId: task.id });
+              if (id) setFocusId(id);
+            } else if (event.key === 'Backspace' && text.length === 0 && event.currentTarget.selectionStart === 0) {
+              const index = siblings.findIndex((item) => item.id === task.id);
+              const previous = siblings[index - 1];
+              event.preventDefault();
+              window.clearTimeout(commitTimerRef.current);
+              deleteTask(task.id);
+              if (previous) setFocusId(previous.id);
+            }
+          }}
+        />
+        <span className="task-strike" aria-hidden="true" />
+      </span>
       <div className="task-trailing" ref={menuRef}>
         {tomatoes > 0 && (
           <span className="task-tomatoes" aria-label={`${tomatoes} focus ${tomatoes === 1 ? 'session' : 'sessions'} done`}>
@@ -773,7 +783,11 @@ function TaskRow({
         <button
           type="button"
           className={`task-timer${timerRunning ? ' is-running' : ''}`}
-          aria-label={timerRunning ? 'Pause focus timer' : 'Start focus timer'}
+          aria-label={
+            session
+              ? (session.paused ? `Resume focus timer for ${taskLabel}` : `Pause focus timer for ${taskLabel}`)
+              : `Start focus timer for ${taskLabel}`
+          }
           aria-pressed={timerRunning}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={() => pomodoro.toggle(task.id)}

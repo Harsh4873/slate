@@ -516,7 +516,7 @@ export function useSlateStore(): SlateStore {
   }, []);
 
   const addSection = useCallback((title: string) => {
-    const trimmed = title.trim() || 'New Note';
+    const trimmed = title.trim() || 'New list';
     let createdId: string | undefined;
     commit((previous) => {
       const now = timestampAfterState(previous);
